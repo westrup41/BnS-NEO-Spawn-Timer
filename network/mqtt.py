@@ -40,6 +40,11 @@ class MqttConnection:
         self.thread = None
         self.socket = None
         self.connected = False
+        self.last_error = ""
+        self.last_message_at = 0.0
+        self.last_connected_at = 0.0
+        self.connect_latency_ms = None
+        self.reconnect_count = 0
 
     def start(self):
         self.stop_event.clear()
@@ -56,9 +61,9 @@ class MqttConnection:
         self.thread = None
         self._set_connected(False)
 
-    def publish(self, payload: bytes):
+    def publish(self, payload: bytes, retain: bool = False):
         try:
-            self.outgoing.put_nowait((time.monotonic(), payload))
+            self.outgoing.put_nowait((time.monotonic(), payload, bool(retain)))
             return True
         except queue.Full:
             return False
@@ -70,8 +75,9 @@ class MqttConnection:
                 self._connect()
                 retry_delay = 1
                 self._io_loop()
-            except (OSError, ValueError, ConnectionError):
-                pass
+            except (OSError, ValueError, ConnectionError) as exc:
+                self.last_error = str(exc)
+                self.reconnect_count += 1
             finally:
                 self._set_connected(False)
                 self._close_socket()
@@ -79,6 +85,7 @@ class MqttConnection:
                 retry_delay = min(20, retry_delay * 2)
 
     def _connect(self):
+        started = time.monotonic()
         sock = socket.create_connection((self.host, self.port), timeout=7)
         sock.settimeout(3)
         self.socket = sock
@@ -94,6 +101,9 @@ class MqttConnection:
             raise ConnectionError("MQTT subscription rejected")
         sock.settimeout(3)
         self._set_connected(True)
+        self.connect_latency_ms = round((time.monotonic() - started) * 1000)
+        self.last_connected_at = time.time()
+        self.last_error = ""
 
     def _io_loop(self):
         last_network_activity = time.monotonic()
@@ -102,11 +112,11 @@ class MqttConnection:
             if sock is None:
                 raise ConnectionError("MQTT socket closed")
             try:
-                created, payload = self.outgoing.get_nowait()
+                created, payload, retain = self.outgoing.get_nowait()
                 if time.monotonic() - created > 30:
                     continue
                 body = _mqtt_string(self.topic) + payload
-                sock.sendall(_packet(0x30, body))
+                sock.sendall(_packet(0x31 if retain else 0x30, body))
                 last_network_activity = time.monotonic()
             except queue.Empty:
                 pass
@@ -136,7 +146,8 @@ class MqttConnection:
                 return
             packet_id = body[offset:offset + 2]
             offset += 2
-        self.on_message(body[offset:])
+        self.last_message_at = time.time()
+        self.on_message(self, body[offset:])
         if qos == 1 and packet_id:
             self.socket.sendall(b"\x40\x02" + packet_id)
 
@@ -198,12 +209,28 @@ class MqttRelayPool:
         for connection in self.connections:
             connection.stop()
 
-    def publish(self, payload: bytes):
+    def publish(self, payload: bytes, retain: bool = False):
         online = self.online_count() > 0
         accepted = False
         for connection in self.connections:
-            accepted = connection.publish(payload) or accepted
+            accepted = connection.publish(payload, retain=retain) or accepted
         return online and accepted
 
     def online_count(self):
         return sum(connection.connected for connection in self.connections)
+
+    def reconnect(self):
+        self.stop()
+        self.start()
+
+    def diagnostics(self):
+        return [{
+            "host": item.host,
+            "port": item.port,
+            "connected": item.connected,
+            "latency_ms": item.connect_latency_ms,
+            "last_message_at": item.last_message_at,
+            "last_connected_at": item.last_connected_at,
+            "last_error": item.last_error,
+            "reconnect_count": item.reconnect_count,
+        } for item in self.connections]

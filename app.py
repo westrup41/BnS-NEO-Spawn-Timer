@@ -5,11 +5,12 @@ from PySide6.QtWidgets import QApplication, QDialog, QMainWindow, QWidget, QVBox
 from PySide6.QtCore import Qt, QTimer, Signal, QSize
 from PySide6.QtGui import QAction
 
-from config import APP_VERSION, BLOCKS, TIMER_DEFS, ALL_TIMER_NAMES, SPAWN_EFFECT_SECONDS
+from config import (APP_VERSION, BLOCKS, TIMER_DEFS, ALL_TIMER_NAMES,
+                    SPAWN_EFFECT_SECONDS, CHAT_MESSAGE_COOLDOWN, CHAT_DUPLICATE_SECONDS)
 from settings import AppSettings
 from utils import s, fmt_seconds, next_world_boss, custom_event_state, split_duration
 from styles import Style
-from resources import app_icon, make_feedback_icon, make_info_icon
+from resources import app_icon, make_feedback_icon, make_info_icon, is_admin_build
 from services.audio import stop_alert_sound, play_alert
 from services.discord import post_discord_webhook
 from services.updater import UpdateManager
@@ -20,6 +21,7 @@ from data.chat_history import ChatHistory
 from widgets.timer_block import TimerBlock
 from widgets.world_boss import WorldBossBlock
 from widgets.event_block import EventBlock
+from widgets.motion import ButtonMotion, stagger_cards
 from widgets.overlay import OverlayWindow
 from dialogs.feedback_dialog import FeedbackDialog
 from dialogs.settings_dialog import SettingsDialog
@@ -27,14 +29,19 @@ from dialogs.about_dialog import AboutDialog
 from dialogs.message_dialog import MessageDialog
 from dialogs.chat_dialog import ChatDialog
 from dialogs.nickname_dialog import NicknameDialog
+from services.admin import verify_admin_packet
 
 class MainWindow(QMainWindow):
     update_available_signal = Signal(object)
     update_check_result_signal = Signal(object)
+    update_download_result_signal = Signal(object)
 
     def __init__(self):
         super().__init__()
         self.settings = AppSettings.load()
+        Style.set_theme(self.settings.ui_theme)
+        self.admin_build = is_admin_build()
+        self.button_motion = ButtonMotion(self)
         self.active_timers = {}
         self.alerted = set()
         self.rows = {}
@@ -43,7 +50,8 @@ class MainWindow(QMainWindow):
         self.feedback_dialog = None
         self.about_dialog = None
         self.chat_dialog = None
-        self.chat_history = ChatHistory()
+        initial_room = self.settings.online_room_code if self.settings.online_room_private else ""
+        self.chat_history = ChatHistory(room_code=initial_room)
         self.chat_unread = False
         self.internet_available = False
         self.tray = None
@@ -59,6 +67,9 @@ class MainWindow(QMainWindow):
         self.event_alerted_target = None
         self.discord_alert_last_sent = {}
         self.incoming_spawn_last_seen = {}
+        self.chat_last_sent_at = None
+        self.chat_last_sent_text = ""
+        self.chat_recent_remote = {}
         self.spawn_effects = {}
         self.spawn_blink_state = False
         self.spawn_start_times = {}
@@ -68,15 +79,19 @@ class MainWindow(QMainWindow):
         self.network.reaction_received.connect(self.on_network_reaction)
         self.network.online_changed.connect(self.on_online_changed)
         self.network.history_received.connect(self.on_network_history)
+        self.network.admin_received.connect(self.on_admin_command)
         self.update_available_signal.connect(self.show_update_dialog)
         self.update_check_result_signal.connect(self.show_update_check_result)
+        self.update_download_result_signal.connect(self.on_update_downloaded)
 
         self.updater = UpdateManager(self.settings)
         log(f"Запуск программы {APP_VERSION}")
 
-        QTimer.singleShot(1000, self.check_updates)
+        if not self.admin_build:
+            QTimer.singleShot(1000, self.check_updates)
 
-        self.setWindowTitle(f"B&S NEO Spawn Timer {APP_VERSION}")
+        suffix = " Admin" if self.admin_build else ""
+        self.setWindowTitle(f"B&S NEO Spawn Timer {APP_VERSION}{suffix}")
         self.setWindowIcon(app_icon())
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -103,6 +118,7 @@ class MainWindow(QMainWindow):
 
     def build_ui(self):
         self.rows = {}
+        motion_cards = []
         sc = self.settings.app_scale
         root = QWidget()
         root_layout = QVBoxLayout(root)
@@ -179,13 +195,16 @@ class MainWindow(QMainWindow):
         for block in BLOCKS:
             timer_block = TimerBlock(self, block, settings_button=False)
             layout.addWidget(timer_block)
+            motion_cards.append(timer_block)
 
         self.world_block = WorldBossBlock(self)
         layout.addWidget(self.world_block)
+        motion_cards.append(self.world_block)
         self.event_block = None
         if self.settings.event_enabled:
             self.event_block = EventBlock(self)
             layout.addWidget(self.event_block)
+            motion_cards.append(self.event_block)
 
         footer = QHBoxLayout()
         footer.setContentsMargins(0, 0, 0, 0)
@@ -205,6 +224,10 @@ class MainWindow(QMainWindow):
         self.chat_badge.setFixedSize(s(11, sc), s(11, sc))
         self.chat_badge.move(s(34, sc), s(3, sc))
         self.update_chat_button()
+
+        if self.settings.ui_theme != "classic":
+            self.button_motion.install(self.shell)
+            QTimer.singleShot(20, lambda cards=motion_cards: stagger_cards(cards, self))
 
         top.mousePressEvent = self.mousePressEvent
         top.mouseMoveEvent = self.mouseMoveEvent
@@ -410,8 +433,39 @@ class MainWindow(QMainWindow):
             cancel_text="Позже",
         )
 
-        if dialog.exec_result() and url:
-            webbrowser.open(url)
+        if dialog.exec_result():
+            if update.get("exe_url"):
+                threading.Thread(target=self._download_update_worker, args=(update,), daemon=True).start()
+            elif url:
+                webbrowser.open(url)
+
+    def _download_update_worker(self, update):
+        try:
+            path = self.updater.download_verified(update)
+            self.update_download_result_signal.emit({"ok": True, "path": str(path)})
+        except Exception as exc:
+            self.update_download_result_signal.emit({"ok": False, "error": str(exc), "url": update.get("url", "")})
+
+    def on_update_downloaded(self, result):
+        if not result.get("ok"):
+            if MessageDialog(
+                self, "Не удалось установить обновление",
+                str(result.get("error") or "Неизвестная ошибка"),
+                ok_text="Открыть релиз", cancel_text="Закрыть",
+            ).exec_result() and result.get("url"):
+                webbrowser.open(result["url"])
+            return
+        if not MessageDialog(
+            self, "Обновление готово",
+            "Файл проверен по SHA-256. Перезапустить программу и установить обновление?",
+            ok_text="Перезапустить", cancel_text="Позже",
+        ).exec_result():
+            return
+        try:
+            self.updater.install_and_restart(result["path"])
+            QApplication.quit()
+        except Exception as exc:
+            MessageDialog(self, "Ошибка обновления", str(exc)).exec()
             
     def check_updates_now(self):
         threading.Thread(
@@ -501,6 +555,8 @@ class MainWindow(QMainWindow):
                 item_key: seen for item_key, seen in self.incoming_spawn_last_seen.items()
                 if seen >= cutoff
             }
+        if sender_id in self.settings.admin_banned_user_ids:
+            return
         sender_blocked = sender_id in self.settings.blocked_alert_user_ids
         self._accept_spawn(packet, apply_notification=self.settings.global_notifications and not sender_blocked)
 
@@ -520,6 +576,39 @@ class MainWindow(QMainWindow):
     def is_user_alert_blocked(self, user_id: str) -> bool:
         return str(user_id or "") in self.settings.blocked_alert_users
 
+    def set_user_chat_blocked(self, user_id: str, blocked: bool, nickname: str = "Неизвестный"):
+        user_id = str(user_id or "").strip()
+        if not user_id or user_id == self.get_user_id():
+            return
+        users = dict(self.settings.blocked_chat_users)
+        if blocked:
+            users[user_id] = str(nickname or "Неизвестный")[:16]
+            self.chat_history.delete_by_author(user_id)
+        else:
+            users.pop(user_id, None)
+        self.settings.blocked_chat_users = users
+        self.settings.save()
+        self.notify_chat_changed(unread=False)
+
+    def is_user_chat_blocked(self, user_id: str) -> bool:
+        return str(user_id or "") in self.settings.blocked_chat_users
+
+    def _message_allowed(self, packet: dict) -> bool:
+        author_id = str(packet.get("author_id") or "")
+        message_id = str(packet.get("id") or "")
+        if (author_id in self.settings.blocked_chat_users
+                or author_id in self.settings.admin_banned_user_ids
+                or message_id in self.settings.admin_deleted_message_ids):
+            return False
+        epoch = self.settings.admin_chat_epoch
+        if epoch:
+            try:
+                if datetime.fromisoformat(str(packet.get("timestamp") or "")) <= datetime.fromisoformat(epoch):
+                    return False
+            except Exception:
+                return False
+        return True
+
     def _accept_spawn(self, packet: dict, apply_notification: bool):
         channel = str(packet.get("channel", ""))
         if channel not in TIMER_DEFS:
@@ -527,7 +616,7 @@ class MainWindow(QMainWindow):
 
         if self.settings.chat_enabled and self.settings.discord_nickname.strip():
             message = dict(packet)
-            if self.chat_history.add(message):
+            if self._message_allowed(message) and self.chat_history.add(message):
                 self.notify_chat_changed(unread=True)
 
         if not apply_notification:
@@ -573,17 +662,35 @@ class MainWindow(QMainWindow):
         if not self.settings.chat_enabled or not self.settings.discord_nickname.strip():
             return
         packet = dict(packet)
+        if not self._message_allowed(packet):
+            return
         if not str(packet.get("message") or "").strip() or len(str(packet.get("message"))) > 120:
             return
+        author = str(packet.get("author_id") or "")
+        normalized = " ".join(str(packet.get("message") or "").casefold().split())
+        now = datetime.now()
+        previous = self.chat_recent_remote.get(author)
+        if previous and previous[0] == normalized and (now - previous[1]).total_seconds() < CHAT_DUPLICATE_SECONDS:
+            return
+        self.chat_recent_remote[author] = (normalized, now)
         if self.chat_history.add(packet):
             self.notify_chat_changed(unread=True)
 
     def send_chat_message(self, text: str):
         if not self.settings.chat_enabled or not self.settings.discord_nickname.strip():
             return False
+        now = datetime.now()
+        normalized = " ".join(str(text).casefold().split())
+        if self.chat_last_sent_at and (now - self.chat_last_sent_at).total_seconds() < CHAT_MESSAGE_COOLDOWN:
+            return False
+        if (normalized == self.chat_last_sent_text and self.chat_last_sent_at
+                and (now - self.chat_last_sent_at).total_seconds() < CHAT_DUPLICATE_SECONDS):
+            return False
         packet = self.network.send_chat(text[:120])
         if packet is None:
             return False
+        self.chat_last_sent_at = now
+        self.chat_last_sent_text = normalized
         self.chat_history.add(packet)
         self.notify_chat_changed(unread=False)
         return True
@@ -597,6 +704,8 @@ class MainWindow(QMainWindow):
             self.notify_chat_changed(unread=False)
 
     def on_network_reaction(self, packet: dict):
+        if str(packet.get("voter_id") or "") in self.settings.admin_banned_user_ids:
+            return
         if self.chat_history.apply_reaction(packet):
             self.notify_chat_changed(unread=False)
 
@@ -605,7 +714,7 @@ class MainWindow(QMainWindow):
             return
         changed = False
         for message in messages[:100]:
-            if isinstance(message, dict) and self.chat_history.add(message):
+            if isinstance(message, dict) and self._message_allowed(message) and self.chat_history.add(message):
                 changed = True
         if changed:
             self.notify_chat_changed(unread=True)
@@ -663,6 +772,44 @@ class MainWindow(QMainWindow):
         self.refresh_discord_buttons()
         if self.chat_dialog is not None:
             self.chat_dialog.update_online_state(self.internet_available)
+
+    def on_admin_command(self, packet: dict):
+        if str(packet.get("action") or "") == "state":
+            commands = packet.get("commands", [])
+            if isinstance(commands, list):
+                for command in commands[-1000:]:
+                    if isinstance(command, dict) and verify_admin_packet(command):
+                        self.on_admin_command(command)
+            return
+        command_id = str(packet.get("id") or "")
+        if command_id and not any(str(item.get("id") or "") == command_id for item in self.settings.admin_commands):
+            self.settings.admin_commands.append(dict(packet))
+            self.settings.admin_commands = self.settings.admin_commands[-1000:]
+        action = str(packet.get("action") or "")
+        target = str(packet.get("target") or "")
+        changed = False
+        if action == "clear_chat":
+            self.settings.admin_chat_epoch = str(packet.get("timestamp") or datetime.utcnow().isoformat())
+            self.chat_history.clear()
+            changed = True
+        elif action == "delete_message" and target:
+            if target not in self.settings.admin_deleted_message_ids:
+                self.settings.admin_deleted_message_ids.append(target)
+            changed = self.chat_history.delete(target)
+        elif action == "ban_user" and target:
+            if target not in self.settings.admin_banned_user_ids:
+                self.settings.admin_banned_user_ids.append(target)
+            changed = self.chat_history.delete_by_author(target)
+        elif action == "unban_user" and target:
+            if target in self.settings.admin_banned_user_ids:
+                self.settings.admin_banned_user_ids.remove(target)
+                changed = True
+        else:
+            return
+        self.settings.admin_deleted_message_ids = self.settings.admin_deleted_message_ids[-2000:]
+        self.settings.save()
+        if changed:
+            self.notify_chat_changed(unread=False)
 
     def _send_webhooks_async(self, channel_name: str):
         urls = [str(url).strip() for url in self.settings.discord_webhooks if str(url).strip()]

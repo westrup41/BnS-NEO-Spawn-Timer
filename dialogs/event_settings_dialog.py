@@ -1,9 +1,10 @@
 from datetime import datetime
+import json
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QFileDialog, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from dialogs.message_dialog import MessageDialog
@@ -143,6 +144,12 @@ class EventSettingsDialog(QDialog):
         clear = QPushButton("Очистить")
         clear.setObjectName("Danger")
         clear.clicked.connect(self.clear_schedule)
+        export_btn = QPushButton("Экспорт")
+        export_btn.setObjectName("Ghost")
+        export_btn.clicked.connect(self.export_schedule)
+        import_btn = QPushButton("Импорт")
+        import_btn.setObjectName("Ghost")
+        import_btn.clicked.connect(self.import_schedule)
         cancel = QPushButton("Отмена")
         cancel.setObjectName("Ghost")
         cancel.clicked.connect(self.reject)
@@ -153,6 +160,8 @@ class EventSettingsDialog(QDialog):
         apply_btn.setObjectName("Primary")
         apply_btn.clicked.connect(self.apply_schedule)
         buttons.addWidget(clear)
+        buttons.addWidget(export_btn)
+        buttons.addWidget(import_btn)
         buttons.addStretch(1)
         buttons.addWidget(save)
         buttons.addWidget(apply_btn)
@@ -278,6 +287,37 @@ class EventSettingsDialog(QDialog):
         if self.app.overlay_window is not None:
             self.app.overlay_window.apply_settings()
         return True
+
+    def export_schedule(self):
+        if not self._store_schedule():
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Экспорт Event", "bns-neo-event.json", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as file:
+                json.dump({"format": "bns-neo-event", "version": 1,
+                           "appearance_minutes": self.settings.event_appearance_minutes,
+                           "schedule": self.settings.event_schedule}, file, ensure_ascii=False, indent=2)
+        except Exception as exc:
+            MessageDialog(self, "Ошибка экспорта", str(exc)).exec()
+
+    def import_schedule(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Импорт Event", "", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                payload = json.load(file)
+            if payload.get("format") != "bns-neo-event" or not isinstance(payload.get("schedule"), dict):
+                raise ValueError("Это не файл расписания Event")
+            self.settings.event_schedule = payload["schedule"]
+            self.settings.event_appearance_minutes = max(1, min(59, int(payload.get("appearance_minutes", 5))))
+            self.settings.save()
+            MessageDialog(self, "Импорт завершён", "Расписание загружено. Откройте окно Event заново для проверки.").exec()
+            self.accept()
+        except Exception as exc:
+            MessageDialog(self, "Ошибка импорта", str(exc)).exec()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

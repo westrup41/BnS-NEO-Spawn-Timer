@@ -3,6 +3,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QSizePol
 
 from config import COLORS
 from dialogs.event_settings_dialog import EventSettingsDialog
+from dialogs.upcoming_events_dialog import UpcomingEventsDialog
 from resources import make_settings_icon
 from utils import s
 
@@ -51,9 +52,16 @@ class EventBlock(QFrame):
         row.addWidget(self.day_badge)
         row.addWidget(self.timer_label)
         layout.addWidget(bubble)
+        bubble.setCursor(Qt.PointingHandCursor)
+        bubble.setToolTip("Показать 5 ближайших событий")
+        bubble.mousePressEvent = self.show_upcoming
 
     def open_settings(self):
         EventSettingsDialog(self.app).exec()
+
+    def show_upcoming(self, event):
+        if event.button() == Qt.LeftButton:
+            UpcomingEventsDialog(self.app).exec()
 
     def set_state(self, name: str, timer_text: str, status: str, days: int = 0):
         self.name_label.setText(name or "No_Text")

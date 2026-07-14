@@ -75,7 +75,7 @@ class BlockedUsersDialog(QDialog):
             item = self.rows_layout.takeAt(0)
             if item.widget() is not None:
                 item.widget().deleteLater()
-        blocked = self.settings.blocked_alert_users
+        blocked = set(self.settings.blocked_alert_users) | set(self.settings.blocked_chat_users)
         if not blocked:
             self.rows_layout.addStretch(1)
             empty = QLabel("Список пуст")
@@ -84,7 +84,9 @@ class BlockedUsersDialog(QDialog):
             self.rows_layout.addWidget(empty)
             self.rows_layout.addStretch(1)
         else:
-            for user_id, nickname in blocked.items():
+            for user_id in sorted(blocked):
+                nickname = (self.settings.blocked_alert_users.get(user_id)
+                            or self.settings.blocked_chat_users.get(user_id) or "Неизвестный")
                 self.rows_layout.addWidget(self.make_row(user_id, nickname))
             self.rows_layout.addStretch(1)
 
@@ -101,16 +103,25 @@ class BlockedUsersDialog(QDialog):
         id_label.setMinimumWidth(s(300, sc))
         nick_label = QLabel(nickname or "Неизвестный")
         nick_label.setMinimumWidth(s(105, sc))
+        kinds = []
+        if user_id in self.settings.blocked_alert_users:
+            kinds.append("алерты")
+        if user_id in self.settings.blocked_chat_users:
+            kinds.append("чат")
+        type_label = QLabel(" + ".join(kinds))
+        type_label.setObjectName("FormLabel")
         remove = QPushButton("Удалить")
         remove.setObjectName("Danger")
         remove.clicked.connect(lambda checked=False, uid=user_id: self.remove_user(uid))
         row.addWidget(id_label, 1)
         row.addWidget(nick_label)
+        row.addWidget(type_label)
         row.addWidget(remove)
         return frame
 
     def remove_user(self, user_id: str):
         self.app.set_user_alert_blocked(user_id, False)
+        self.app.set_user_chat_blocked(user_id, False)
         self.refresh()
 
     def mousePressEvent(self, event):

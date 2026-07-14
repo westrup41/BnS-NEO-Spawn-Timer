@@ -2,7 +2,7 @@ from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer, QEvent, QPoint
 from PySide6.QtWidgets import (
-    QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QApplication, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QMenu, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
@@ -239,6 +239,11 @@ class ChatDialog(QDialog):
         header.addWidget(time_label)
         box.addLayout(header)
 
+        if self.app.is_user_alert_blocked(message.get("author_id", "")):
+            marker = QLabel("Алерты пользователя заблокированы")
+            marker.setObjectName("FormLabel")
+            box.addWidget(marker)
+
         text = QLabel(message.get("message", ""))
         text.setObjectName("ChatText")
         text.setWordWrap(True)
@@ -268,11 +273,18 @@ class ChatDialog(QDialog):
         if not user_id or user_id == self.app.get_user_id():
             return
         blocked = self.app.is_user_alert_blocked(user_id)
+        chat_blocked = self.app.is_user_chat_blocked(user_id)
         menu = QMenu(self)
         action = menu.addAction(
             "Разблокировать алерты этого пользователя" if blocked
             else "Заблокировать алерты этого пользователя"
         )
+        chat_action = menu.addAction(
+            "Разблокировать сообщения этого пользователя" if chat_blocked
+            else "Блокировать сообщения этого пользователя"
+        )
+        copy_id = menu.addAction("Копировать User ID")
+        copy_message_id = menu.addAction("Копировать ID сообщения")
         selected = menu.exec(card.mapToGlobal(position))
         if selected is action:
             self.app.set_user_alert_blocked(
@@ -280,6 +292,16 @@ class ChatDialog(QDialog):
                 not blocked,
                 str(message.get("nickname") or "Неизвестный"),
             )
+            self.refresh_messages(scroll_to_bottom=False)
+        elif selected is chat_action:
+            self.app.set_user_chat_blocked(
+                user_id, not chat_blocked,
+                str(message.get("nickname") or "Неизвестный"),
+            )
+        elif selected is copy_id:
+            QApplication.clipboard().setText(user_id)
+        elif selected is copy_message_id:
+            QApplication.clipboard().setText(str(message.get("id") or ""))
 
     def showEvent(self, event):
         super().showEvent(event)

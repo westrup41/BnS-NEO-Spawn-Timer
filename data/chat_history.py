@@ -1,4 +1,5 @@
 import json
+import hashlib
 import threading
 import uuid
 from datetime import datetime
@@ -14,10 +15,24 @@ CHAT_HISTORY_FILE = APP_DIR / "chat_history.json"
 class ChatHistory:
     """Persistent, bounded chat history shared by chat and spawn alerts."""
 
-    def __init__(self, path=CHAT_HISTORY_FILE):
-        self.path = path
+    def __init__(self, path=CHAT_HISTORY_FILE, room_code=""):
+        self.base_path = path
+        self.path = self._path_for_room(room_code)
         self._lock = threading.RLock()
         self._messages = []
+        self.load()
+
+    def _path_for_room(self, room_code):
+        code = str(room_code or "").strip()
+        if not code:
+            return self.base_path
+        room_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()[:16]
+        return self.base_path.with_name(f"chat_history_room_{room_hash}.json")
+
+    def set_room(self, room_code):
+        with self._lock:
+            self.path = self._path_for_room(room_code)
+            self._messages = []
         self.load()
 
     def load(self):
@@ -139,6 +154,38 @@ class ChatHistory:
     def all(self):
         with self._lock:
             return [dict(item, reactions=dict(item.get("reactions", {}))) for item in self._messages]
+
+    def clear(self):
+        with self._lock:
+            self._messages = []
+            self.save()
+
+    def delete(self, message_id):
+        with self._lock:
+            before = len(self._messages)
+            self._messages = [item for item in self._messages if item.get("id") != str(message_id)]
+            if len(self._messages) != before:
+                self.save()
+                return True
+        return False
+
+    def delete_by_author(self, author_id):
+        with self._lock:
+            before = len(self._messages)
+            self._messages = [item for item in self._messages if item.get("author_id") != str(author_id)]
+            if len(self._messages) != before:
+                self.save()
+                return True
+        return False
+
+    def prune(self, predicate):
+        with self._lock:
+            before = len(self._messages)
+            self._messages = [item for item in self._messages if predicate(item)]
+            if len(self._messages) != before:
+                self.save()
+                return True
+        return False
 
     def reputation(self, author_id):
         with self._lock:

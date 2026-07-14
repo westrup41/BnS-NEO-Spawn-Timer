@@ -12,12 +12,17 @@ from services.identity import UserIdentity
 from .mqtt import MqttRelayPool
 from .packet import create_packet, spawn_packet, chat_packet, reaction_packet
 from .protocol import PROTOCOL_VERSION
+from services.admin import verify_admin_packet
+from services.admin import sign_admin_packet
+from .packet import admin_packet
 
 
 BROKERS = (
     ("broker.emqx.io", 1883),
+    ("broker-cn.emqx.io", 1883),
     ("broker.hivemq.com", 1883),
     ("test.mosquitto.org", 1883),
+    ("mqtt.eclipseprojects.io", 1883),
 )
 ROOM_SECRET = bytes.fromhex(
     "A46E70F3D8BE2B2C7C9773A92DE47E42D66AA8D14DC8D313F67AE8A74E12095D"
@@ -33,6 +38,7 @@ class NetworkManager(QObject):
     reaction_received = Signal(dict)
     online_changed = Signal(bool)
     history_received = Signal(list)
+    admin_received = Signal(dict)
 
     def __init__(self, app):
         super().__init__()
@@ -44,7 +50,12 @@ class NetworkManager(QObject):
         self._seen_packets = set()
         self._seen_lock = threading.Lock()
         self._status_lock = threading.Lock()
-        self._cipher = AESGCM(ROOM_SECRET)
+        self._global_cipher = AESGCM(ROOM_SECRET)
+        self._room_code = str(
+            getattr(app.settings, "online_room_code", "")
+            if getattr(app.settings, "online_room_private", False) else ""
+        )
+        self._cipher = AESGCM(self._derive_room_secret(self._room_code))
         self._relay = MqttRelayPool(
             BROKERS, ROOM_TOPIC, self._on_wire_message, self._on_relay_status
         )
@@ -91,13 +102,7 @@ class NetworkManager(QObject):
         if not self.started or not self.internet_available:
             return False
         try:
-            raw = json.dumps(
-                packet, ensure_ascii=False, separators=(",", ":")
-            ).encode("utf-8")
-            compressed = zlib.compress(raw, level=6)
-            nonce = os.urandom(12)
-            encrypted = nonce + self._cipher.encrypt(nonce, compressed, WIRE_PREFIX)
-            wire = WIRE_PREFIX + base64.b64encode(encrypted)
+            wire = self._encode(packet, self._cipher)
             if len(wire) > MAX_WIRE_BYTES:
                 return False
             packet_id = str(packet.get("id") or "")
@@ -111,7 +116,32 @@ class NetworkManager(QObject):
         except (TypeError, ValueError):
             return False
 
-    def _on_wire_message(self, wire: bytes):
+    def _encode(self, packet: dict, cipher) -> bytes:
+        raw = json.dumps(packet, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        compressed = zlib.compress(raw, level=6)
+        nonce = os.urandom(12)
+        encrypted = nonce + cipher.encrypt(nonce, compressed, WIRE_PREFIX)
+        return WIRE_PREFIX + base64.b64encode(encrypted)
+
+    def send_admin_command(self, action: str, target: str = "", nickname: str = ""):
+        if not self.started or not self.internet_available:
+            return False
+        try:
+            command = sign_admin_packet(admin_packet(action, target, nickname))
+            commands = list(getattr(self.app.settings, "admin_commands", []))[-999:] + [command]
+            snapshot = create_packet("admin", action="state", commands=commands)
+            packet = sign_admin_packet(snapshot)
+            wire = self._encode(packet, self._global_cipher)
+            if len(wire) > MAX_WIRE_BYTES or not self._remember_packet(packet["id"]):
+                return False
+            accepted = self._relay.publish(wire, retain=True)
+            if accepted:
+                self.admin_received.emit(packet)
+            return accepted
+        except Exception:
+            return False
+
+    def _on_wire_message(self, _connection, wire: bytes):
         if not wire.startswith(WIRE_PREFIX) or len(wire) > MAX_WIRE_BYTES:
             return
         try:
@@ -119,13 +149,22 @@ class NetworkManager(QObject):
             if len(encrypted) < 29:
                 return
             nonce, ciphertext = encrypted[:12], encrypted[12:]
-            compressed = self._cipher.decrypt(nonce, ciphertext, WIRE_PREFIX)
+            used_global_fallback = False
+            try:
+                compressed = self._cipher.decrypt(nonce, ciphertext, WIRE_PREFIX)
+            except Exception:
+                # Signed owner moderation commands are sent through the global
+                # cipher and remain effective inside private rooms.
+                compressed = self._global_cipher.decrypt(nonce, ciphertext, WIRE_PREFIX)
+                used_global_fallback = bool(self._room_code)
             decompressor = zlib.decompressobj()
             raw = decompressor.decompress(compressed, MAX_WIRE_BYTES + 1)
             if len(raw) > MAX_WIRE_BYTES or decompressor.unconsumed_tail:
                 return
             packet = json.loads(raw.decode("utf-8"))
         except Exception:
+            return
+        if used_global_fallback and packet.get("type") != "admin":
             return
         self.receive(packet)
 
@@ -151,6 +190,10 @@ class NetworkManager(QObject):
             return
 
         packet_type = packet.get("type")
+        if packet_type == "admin":
+            if verify_admin_packet(packet):
+                self.admin_received.emit(packet)
+            return
         if packet_type not in ("hello", "spawn", "chat", "reaction", "sync"):
             return
         if packet.get("protocol") != PROTOCOL_VERSION or not UserIdentity.verify(packet):
@@ -172,6 +215,11 @@ class NetworkManager(QObject):
             messages = packet.get("messages", [])
             if isinstance(messages, list):
                 self.history_received.emit(messages[:100])
+            commands = packet.get("admin_commands", [])
+            if isinstance(commands, list):
+                for command in commands[-1000:]:
+                    if isinstance(command, dict) and verify_admin_packet(command):
+                        self.admin_received.emit(command)
 
     def send_hello(self):
         packet = create_packet(
@@ -193,7 +241,11 @@ class NetworkManager(QObject):
     def send_history(self):
         if not self.internet_available:
             return
-        packet = create_packet("sync", messages=self.app.chat_history.all()[-100:])
+        packet = create_packet(
+            "sync",
+            messages=self.app.chat_history.all()[-100:],
+            admin_commands=list(getattr(self.app.settings, "admin_commands", []))[-1000:],
+        )
         self.broadcast(self.identity.sign(packet))
 
     def _remember_packet(self, packet_id: str) -> bool:
@@ -204,3 +256,33 @@ class NetworkManager(QObject):
             if len(self._seen_packets) > 1000:
                 self._seen_packets = set(list(self._seen_packets)[-500:])
             return True
+
+    def diagnostics(self):
+        return self._relay.diagnostics()
+
+    def reconnect(self):
+        if self.started:
+            self._relay.reconnect()
+
+    @staticmethod
+    def _derive_room_secret(room_code: str) -> bytes:
+        code = str(room_code or "").strip()
+        if not code:
+            return ROOM_SECRET
+        return hashlib.pbkdf2_hmac(
+            "sha256", code.encode("utf-8"), b"BNS-NEO/private-room/v1", 200_000, 32
+        )
+
+    def set_room(self, room_code: str):
+        code = str(room_code or "").strip()[:64]
+        if code == self._room_code:
+            return
+        self._room_code = code
+        self._cipher = AESGCM(self._derive_room_secret(code))
+        self.peers.clear()
+        with self._seen_lock:
+            self._seen_packets.clear()
+        self.reconnect()
+
+    def room_label(self):
+        return "Глобальная" if not self._room_code else "Приватная"

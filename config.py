@@ -2,7 +2,7 @@ from datetime import timedelta, timezone
 from paths import APP_DIR
 from paths import APP_DIR, USER_SOUNDS_DIR
 
-APP_VERSION = "v4.0"
+APP_VERSION = "v4.1"
 APP_NAME = "B&S NEO Spawn Timer"
 AUTHOR = "westrup"
 GITHUB_URL = "https://github.com/westrup41/BnS-NEO-Spawn-Timer"
@@ -16,9 +16,15 @@ PROTOCOL_VERSION = 2
 CHAT_MAX_MESSAGES = 100
 CHAT_MAX_LENGTH = 120
 CHAT_COOLDOWN = 30
+CHAT_MESSAGE_COOLDOWN = 3
+CHAT_DUPLICATE_SECONDS = 30
 SPAWN_EFFECT_SECONDS = 60
 BLINK_INTERVAL_MS = 500
 NETWORK_TOPIC = "bnsneo"
+
+# Public half of the application owner's Ed25519 moderation key.  The private
+# half is never shipped with the program and is kept by the owner only.
+ADMIN_PUBLIC_KEY = "OBMALWu+aVgF0T9arkjVrjGrSL2N6NWgR5rvQwKr0X8="
 
 COLORS = {
     "bg_main": "#313338", "bg_card": "#2B2D31", "bg_panel": "#24262B",

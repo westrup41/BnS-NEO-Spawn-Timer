@@ -40,6 +40,25 @@ def next_custom_event(schedule: dict, now_local=None):
     state = custom_event_state(schedule, now_local)
     return state["name"], state["target"], state["seconds"]
 
+def upcoming_custom_events(schedule: dict, count: int = 5, now_local=None):
+    now_local = now_local or datetime.now().astimezone()
+    targets = []
+    for weekday in range(7):
+        for row in schedule.get(str(weekday), []) if isinstance(schedule, dict) else []:
+            try:
+                hour, minute = map(int, str(row.get("time") or "").split(":"))
+                if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                    continue
+            except Exception:
+                continue
+            days = (weekday - now_local.weekday()) % 7
+            target = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0) + timedelta(days=days)
+            if target <= now_local:
+                target += timedelta(days=7)
+            targets.append({"name": str(row.get("name") or "No_Text"), "target": target})
+    targets.sort(key=lambda item: item["target"])
+    return targets[:max(1, int(count))]
+
 def custom_event_state(schedule: dict, now_local=None, appearance_seconds: int = 300):
     # Event follows the local clock and weekday configured on the user's PC.
     now_local = now_local or datetime.now().astimezone()

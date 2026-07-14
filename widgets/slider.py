@@ -66,7 +66,7 @@ class DiscordSlider(QWidget):
         track = self._track_rect()
         r = track.height() / 2
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#191B20"))
+        painter.setBrush(QColor(COLORS["border_soft"]))
         painter.drawRoundedRect(track, r, r)
         handle_x = self._value_to_x()
         filled = QRectF(track.left(), track.top(), max(0.0, handle_x - track.left()), track.height())
@@ -74,7 +74,7 @@ class DiscordSlider(QWidget):
         painter.drawRoundedRect(filled, r, r)
         radius = self._handle_radius()
         painter.setBrush(QColor(COLORS["accent"]))
-        painter.setPen(QColor(COLORS["bg_panel"]))
+        painter.setPen(QColor(COLORS["bg_card"]))
         painter.drawEllipse(QRectF(handle_x - radius, self.height() / 2 - radius, radius * 2, radius * 2))
         painter.end()
 

@@ -5,7 +5,7 @@ from PySide6.QtGui import QIcon, QPixmap, QPainter, QPainterPath, QColor, QFont,
 from PySide6.QtCore import Qt, QRectF, QPointF
 from config import COLORS
 
-_ARROW_ASSET = None
+_ARROW_ASSETS = {}
 
 def make_app_icon(size=64) -> QIcon:
     pix = QPixmap(size, size)
@@ -143,6 +143,29 @@ def make_settings_icon(size=64) -> QIcon:
     painter.end()
     return QIcon(pix)
 
+def make_room_icon(private=False, size=64, color=None) -> QIcon:
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    icon_color = QColor(color or COLORS["text_main"])
+    pen = QPen(icon_color, max(2, int(size * 0.075)), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    if private:
+        painter.drawEllipse(QRectF(size * .17, size * .23, size * .34, size * .34))
+        painter.drawLine(QPointF(size * .45, size * .51), QPointF(size * .79, size * .78))
+        painter.drawLine(QPointF(size * .66, size * .67), QPointF(size * .72, size * .60))
+        painter.drawLine(QPointF(size * .73, size * .73), QPointF(size * .79, size * .66))
+    else:
+        globe = QRectF(size * .14, size * .14, size * .72, size * .72)
+        painter.drawEllipse(globe)
+        painter.drawEllipse(QRectF(size * .34, size * .14, size * .32, size * .72))
+        painter.drawLine(QPointF(size * .15, size * .50), QPointF(size * .85, size * .50))
+        painter.drawArc(QRectF(size * .17, size * .28, size * .66, size * .44), 0, 180 * 16)
+    painter.end()
+    return QIcon(pix)
+
 def resource_path(filename: str) -> str:
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, filename)
@@ -156,14 +179,17 @@ def app_icon() -> QIcon:
     return make_app_icon()
 
 def combo_arrow_asset() -> str:
-    global _ARROW_ASSET
-    if _ARROW_ASSET and os.path.exists(_ARROW_ASSET):
-        return _ARROW_ASSET.replace("\\", "/")
+    color = COLORS["text_main"]
+    if color in _ARROW_ASSETS and os.path.exists(_ARROW_ASSETS[color]):
+        return _ARROW_ASSETS[color].replace("\\", "/")
     folder = os.path.join(tempfile.gettempdir(), "bns_neo_timer_assets")
     os.makedirs(folder, exist_ok=True)
-    path = os.path.join(folder, "combo_arrow.svg")
-    svg = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1.2 1.4L6 6.2L10.8 1.4" fill="none" stroke="#DBDEE1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    path = os.path.join(folder, f"combo_arrow_{color.lstrip('#')}.svg")
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"><path d="M1.2 1.4L6 6.2L10.8 1.4" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
     with open(path, "w", encoding="utf-8") as file:
         file.write(svg)
-    _ARROW_ASSET = path
+    _ARROW_ASSETS[color] = path
     return path.replace("\\", "/")
+
+def is_admin_build() -> bool:
+    return os.path.exists(resource_path("admin_build.flag"))

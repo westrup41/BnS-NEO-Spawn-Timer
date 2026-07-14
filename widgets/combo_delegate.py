@@ -22,11 +22,11 @@ class ComboItemDelegate(QStyledItemDelegate):
         rect = QRectF(option.rect).adjusted(s(5, self.scale), s(3, self.scale), -s(5, self.scale), -s(3, self.scale))
         if selected:
             fill = QColor(COLORS["accent"])
-            pen = QColor("#7C85FF")
+            pen = QColor(COLORS["accent_hover"])
             text = QColor("#FFFFFF")
         elif hover:
-            fill = QColor("#2E323A")
-            pen = QColor("#3F4450")
+            fill = QColor(COLORS["bg_panel"])
+            pen = QColor(COLORS["border"])
             text = QColor(COLORS["text_main"])
         else:
             fill = QColor(COLORS["bg_input"])

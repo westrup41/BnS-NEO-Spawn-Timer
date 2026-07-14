@@ -55,3 +55,7 @@ def reaction_packet(message_id: str, voter_id: str, value: int):
         voter_id=voter_id,
         value=0 if int(value) == 0 else (1 if int(value) > 0 else -1),
     )
+
+
+def admin_packet(action: str, target: str = "", nickname: str = ""):
+    return create_packet("admin", action=action, target=str(target), nickname=str(nickname)[:16])

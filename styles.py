@@ -3,11 +3,97 @@ from utils import s
 from resources import combo_arrow_asset
 
 class Style:
+    active_theme = "classic"
+    classic_palette = dict(COLORS)
+    midnight_palette = {
+        "bg_main": "#090B10", "bg_card": "#10141D", "bg_panel": "#0C1017",
+        "bg_input": "#080B11", "border": "#252B38", "border_soft": "#1B2230",
+        "text_main": "#F2F5F9", "text_soft": "#B9C1CE", "text_muted": "#778196",
+        "text_disabled": "#4F586B", "accent": "#9B7BFF", "accent_hover": "#B198FF",
+        "danger": "#F0445E", "danger_hover": "#FF647A", "success": "#27D3A2",
+        "success_hover": "#42E6B8", "timer_hot": "#FF6379",
+    }
+    starlight_palette = {
+        "bg_main": "#EEF1F6", "bg_card": "#FFFFFF", "bg_panel": "#F7F8FB",
+        "bg_input": "#FFFFFF", "border": "#CAD1DE", "border_soft": "#DDE2EA",
+        "text_main": "#171A23", "text_soft": "#3F4858", "text_muted": "#667085",
+        "text_disabled": "#9AA3B2", "accent": "#6555D9", "accent_hover": "#5142C2",
+        "danger": "#D92D4B", "danger_hover": "#B4233C", "success": "#14866D",
+        "success_hover": "#0F705B", "timer_hot": "#D92D4B",
+    }
+
+    @classmethod
+    def set_theme(cls, theme: str):
+        cls.active_theme = str(theme) if str(theme) in {"midnight", "starlight"} else "classic"
+        palette = {
+            "classic": cls.classic_palette,
+            "midnight": cls.midnight_palette,
+            "starlight": cls.starlight_palette,
+        }[cls.active_theme]
+        COLORS.clear()
+        COLORS.update(palette)
+
+    @classmethod
+    def _themed(cls, css: str) -> str:
+        if cls.active_theme == "classic":
+            return css
+        if cls.active_theme == "midnight":
+            return css + """
+        QFrame#Shell { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #090B10, stop:0.55 #0B0E15, stop:1 #10101A); border: 1px solid #2A3040; }
+        QFrame#Card { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #121720, stop:1 #0E121A); border-color: #252D3B; }
+        QFrame#TimerBubble { background: rgba(7,10,16,205); border-color: #202838; }
+        QFrame#TimerBubble:hover { border-color: #35415A; background: rgba(12,16,25,235); }
+        QLineEdit, QTextEdit, QComboBox, QSpinBox { background: #090C12; border-color: #262D3B; }
+        QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border-color: #8D73FF; background: #0D1019; }
+        QPushButton#Primary { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #6D4DF4, stop:1 #8C68FF); border: 1px solid #9A83FF; }
+        QPushButton#Primary:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #805FFF, stop:1 #9D80FF); }
+        QPushButton#Success { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #159A79, stop:1 #27D3A2); color: #031711; }
+        QPushButton#Ghost { background: rgba(12,16,24,210); border-color: #262E3D; }
+        QPushButton#Ghost:hover { background: #161C27; border-color: #46526B; }
+        QFrame#SettingsGroup, QFrame#ChatMessage { background: #0D1119; border-color: #202736; }
+        QPushButton#ChatButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #6D4DF4, stop:1 #A475FF); border-color: #B197FF; }
+        """
+        return css + """
+        QWidget { color: #171A23; }
+        QFrame#Shell { background: #EEF1F6; border: 1px solid #C8D0DC; }
+        QLabel#AppTitle, QLabel#SectionTitle, QLabel#GroupTitle, QLabel#TimerName,
+        QLabel#WorldName, QLabel#ChatNick { color: #171A23; }
+        QFrame#Card { background: #FFFFFF; border-color: #D4DAE4; }
+        QFrame#TimerBubble { background: #F7F8FB; border-color: #DDE2EA; }
+        QFrame#TimerBubble:hover { background: #F0F2F7; border-color: #B8C1CF; }
+        QFrame#TimerBubble[active="true"] { background: #F0EEFF; border-color: #7A69E8; }
+        QLineEdit, QTextEdit, QComboBox, QSpinBox { background: #FFFFFF; color: #171A23; border-color: #C9D0DC; }
+        QLineEdit:focus, QTextEdit:focus, QComboBox:focus { background: #FFFFFF; border-color: #6555D9; }
+        QComboBox QAbstractItemView, QMenu { background: #FFFFFF; color: #171A23; border-color: #C9D0DC; }
+        QComboBox QAbstractItemView::item:selected, QMenu::item:selected { background: #E9E5FF; color: #332A80; }
+        QPushButton#Ghost, QPushButton#Chrome, QPushButton#Close, QPushButton#SocialButton,
+        QPushButton#EmojiButton, QPushButton#EmojiPickerButton { background: #FFFFFF; color: #242936; border-color: #C9D0DC; }
+        QPushButton#Ghost:hover, QPushButton#Chrome:hover, QPushButton#SocialButton:hover,
+        QPushButton#EmojiButton:hover, QPushButton#EmojiPickerButton:hover { background: #F0F2F7; border-color: #9DA8B8; }
+        QPushButton#Primary { background: #6555D9; color: #FFFFFF; border: 1px solid #5748C5; }
+        QPushButton#Primary:hover { background: #5142C2; }
+        QPushButton#Success { background: #14866D; color: #FFFFFF; }
+        QPushButton#Danger, QPushButton#RoomSegment[active="true"] { color: #FFFFFF; }
+        QPushButton:disabled { background: #E2E6EC; color: #98A2B3; }
+        QCheckBox { color: #242936; }
+        QCheckBox::indicator { background: #FFFFFF; border-color: #B8C1CF; }
+        QFrame#SettingsGroup, QFrame#ChatMessage, QFrame#EmojiPanel, QFrame#ContactPopover {
+            background: #FFFFFF; border-color: #D7DDE7;
+        }
+        QScrollBar:vertical { background: #E0E4EB; }
+        QScrollBar::handle:vertical { background: #8A7BE5; }
+        QLabel#ChatBadge { border-color: #EEF1F6; }
+        QFrame#OverlayBubble { background: rgba(255,255,255,0.96); border-color: rgba(190,198,211,0.96); }
+        QLabel#OverlayName, QLabel#OverlayWorldName { color: #171A23; }
+        QFrame#OverlayLine { background: rgba(102,112,133,0.28); }
+        """
+
     @staticmethod
     def main(scale: float) -> str:
         arrow_path = combo_arrow_asset()
-        return f"""
+        css = f"""
         QWidget {{ background: transparent; color: {COLORS['text_main']}; font-family: "Segoe UI"; font-size: {s(11, scale)}px; }}
+        QDialog#StandaloneDialog {{ background: {COLORS['bg_main']}; }}
         QFrame#Shell {{ background: {COLORS['bg_main']}; border: 1px solid #26292F; border-radius: {s(14, scale)}px; }}
         QFrame#TopBar {{ background: transparent; border: none; }}
         QFrame#Logo {{ background: {COLORS['bg_input']}; border: 1px solid {COLORS['border']}; border-radius: {s(10, scale)}px; }}
@@ -73,6 +159,11 @@ class Style:
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; background: transparent; border: none; }}
         QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
         QLabel#GroupTitle {{ color: #FFFFFF; font-size: {s(12, scale)}px; font-weight: 900; }}
+        QFrame#RoomSwitch {{ background: {COLORS['bg_input']}; border: 1px solid {COLORS['border']}; border-radius: {s(12, scale)}px; }}
+        QPushButton#RoomSegment {{ background: transparent; color: {COLORS['text_disabled']}; border: 1px solid transparent; border-radius: {s(9, scale)}px; padding: 0; }}
+        QPushButton#RoomSegment[active="true"] {{ background: {COLORS['accent']}; color: #FFFFFF; border-color: {COLORS['accent_hover']}; }}
+        QPushButton#RoomSegment[active="false"] {{ background: transparent; opacity: 0.65; }}
+        QPushButton#RoomSegment:hover {{ border-color: {COLORS['border']}; }}
         QPushButton#ChatButton {{ background: {COLORS['accent']}; border: 1px solid #7780FF; border-radius: {s(24, scale)}px; padding: 0; }}
         QPushButton#ChatButton:hover {{ background: {COLORS['accent_hover']}; }}
         QPushButton#ChatButton:disabled {{ background: #3D414A; border-color: #555A64; }}
@@ -92,10 +183,11 @@ class Style:
         QLabel#ChatNick {{ color: #FFFFFF; font-size: {s(11, scale)}px; font-weight: 900; }}
         QLabel#ChatText {{ color: {COLORS['text_main']}; font-size: {s(11, scale)}px; font-weight: 650; }}
         """
+        return Style._themed(css)
 
     @staticmethod
     def overlay(scale: float) -> str:
-        return f"""
+        css = f"""
         QWidget {{ background: transparent; color: {COLORS['text_main']}; font-family: "Segoe UI"; }}
         QFrame#OverlayBubble {{ background: rgba(43,45,49,0.94); border: 1px solid rgba(76,82,96,0.95); border-radius: {s(18, scale)}px; }}
         QFrame#OverlayTimerRow {{ background: transparent; border: 1px solid transparent; border-radius: {s(9, scale)}px; }}
@@ -109,6 +201,7 @@ class Style:
         QLabel#OverlayWorldTimer {{ color: {COLORS['text_main']}; font-size: {s(24, scale)}px; font-weight: 900; letter-spacing: 0.8px; }}
         QLabel#OverlayDayBadge {{ background: {COLORS['accent']}; color: #FFFFFF; border: 1px solid #7780FF; border-radius: {s(6, scale)}px; padding: {s(3, scale)}px {s(5, scale)}px; font-size: {s(8, scale)}px; font-weight: 900; }}
         """
+        return Style._themed(css)
 
 def system_tray_menu_stylesheet() -> str:
     return """
