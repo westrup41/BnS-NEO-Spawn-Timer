@@ -21,6 +21,8 @@ class MessageDialog(QDialog):
         details: str = "",
         ok_text: str = "OK",
         cancel_text: str | None = None,
+        ok_first: bool = False,
+        center_buttons: bool = False,
     ):
         super().__init__(parent)
 
@@ -71,20 +73,29 @@ class MessageDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.addStretch()
 
+        cancel = None
         if cancel_text:
             cancel = QPushButton(cancel_text)
             cancel.setObjectName("Ghost")
             cancel.clicked.connect(self.reject)
-            buttons.addWidget(cancel)
 
         ok = QPushButton(ok_text)
         ok.setObjectName("Primary")
         ok.clicked.connect(self.accept_dialog)
         self.cancel_button = None
         
-        if cancel_text:
+        if cancel is not None:
             self.cancel_button = cancel
-        buttons.addWidget(ok)
+        if ok_first:
+            buttons.addWidget(ok)
+            if cancel is not None:
+                buttons.addWidget(cancel)
+        else:
+            if cancel is not None:
+                buttons.addWidget(cancel)
+            buttons.addWidget(ok)
+        if center_buttons:
+            buttons.addStretch()
 
         layout.addLayout(buttons)
 

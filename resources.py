@@ -1,8 +1,8 @@
 import os
 import sys
 import tempfile
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QPainterPath, QColor, QFont
-from PySide6.QtCore import Qt, QRectF
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QPainterPath, QColor, QFont, QPen, QPolygonF
+from PySide6.QtCore import Qt, QRectF, QPointF
 from config import COLORS
 
 _ARROW_ASSET = None
@@ -49,8 +49,102 @@ def make_feedback_icon(size=64) -> QIcon:
     painter.end()
     return QIcon(pix)
 
+def make_info_icon(size=64) -> QIcon:
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(COLORS["text_main"]), max(2, int(size * 0.09)))
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    painter.drawEllipse(QRectF(size * 0.12, size * 0.12, size * 0.76, size * 0.76))
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(COLORS["text_main"]))
+    painter.drawEllipse(QRectF(size * 0.44, size * 0.28, size * 0.12, size * 0.12))
+    painter.drawRoundedRect(QRectF(size * 0.44, size * 0.46, size * 0.12, size * 0.30), size * 0.05, size * 0.05)
+    painter.end()
+    return QIcon(pix)
+
+def make_github_icon(size=64) -> QIcon:
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(Qt.NoPen)
+    color = QColor(COLORS["text_main"])
+    painter.setBrush(color)
+    head = QPainterPath()
+    head.moveTo(size * 0.23, size * 0.40)
+    head.lineTo(size * 0.25, size * 0.20)
+    head.lineTo(size * 0.40, size * 0.30)
+    head.cubicTo(size * 0.47, size * 0.27, size * 0.53, size * 0.27, size * 0.60, size * 0.30)
+    head.lineTo(size * 0.75, size * 0.20)
+    head.lineTo(size * 0.77, size * 0.40)
+    head.cubicTo(size * 0.86, size * 0.50, size * 0.83, size * 0.72, size * 0.68, size * 0.78)
+    head.cubicTo(size * 0.58, size * 0.83, size * 0.42, size * 0.83, size * 0.32, size * 0.78)
+    head.cubicTo(size * 0.17, size * 0.72, size * 0.14, size * 0.50, size * 0.23, size * 0.40)
+    head.closeSubpath()
+    painter.drawPath(head)
+    painter.setBrush(QColor(COLORS["bg_input"]))
+    painter.drawEllipse(QRectF(size * 0.34, size * 0.50, size * 0.09, size * 0.09))
+    painter.drawEllipse(QRectF(size * 0.57, size * 0.50, size * 0.09, size * 0.09))
+    painter.end()
+    return QIcon(pix)
+
+def make_telegram_icon(size=64) -> QIcon:
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor("#2AABEE"))
+    painter.drawEllipse(QRectF(size * 0.10, size * 0.10, size * 0.80, size * 0.80))
+    painter.setBrush(QColor("#FFFFFF"))
+    painter.drawPolygon(QPolygonF([
+        QPointF(size * 0.24, size * 0.48), QPointF(size * 0.76, size * 0.27),
+        QPointF(size * 0.61, size * 0.75), QPointF(size * 0.47, size * 0.60),
+        QPointF(size * 0.38, size * 0.69), QPointF(size * 0.39, size * 0.55),
+    ]))
+    painter.end()
+    return QIcon(pix)
+
+def make_discord_icon(size=64) -> QIcon:
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor("#5865F2"))
+    painter.drawRoundedRect(QRectF(size * 0.10, size * 0.15, size * 0.80, size * 0.70), size * 0.20, size * 0.20)
+    painter.setBrush(QColor("#FFFFFF"))
+    painter.drawEllipse(QRectF(size * 0.31, size * 0.43, size * 0.13, size * 0.13))
+    painter.drawEllipse(QRectF(size * 0.56, size * 0.43, size * 0.13, size * 0.13))
+    painter.end()
+    return QIcon(pix)
+
+def make_settings_icon(size=64) -> QIcon:
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+    color = QColor(COLORS["text_main"])
+    pen = QPen(color, max(2, int(size * 0.10)), Qt.SolidLine, Qt.RoundCap)
+    painter.setPen(pen)
+    center = QPointF(size / 2, size / 2)
+    for dx, dy in ((0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)):
+        length = (dx * dx + dy * dy) ** 0.5
+        painter.drawLine(
+            QPointF(center.x() + dx / length * size * 0.25, center.y() + dy / length * size * 0.25),
+            QPointF(center.x() + dx / length * size * 0.37, center.y() + dy / length * size * 0.37),
+        )
+    painter.setBrush(Qt.NoBrush)
+    painter.drawEllipse(QRectF(size * 0.25, size * 0.25, size * 0.50, size * 0.50))
+    painter.drawEllipse(QRectF(size * 0.42, size * 0.42, size * 0.16, size * 0.16))
+    painter.end()
+    return QIcon(pix)
+
 def resource_path(filename: str) -> str:
-    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(sys.argv[0] or __file__)))
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, filename)
 
 def app_icon() -> QIcon:

@@ -6,6 +6,7 @@ from utils import s
 from styles import Style
 from widgets.slider import DiscordSlider
 from dialogs.webhooks_dialog import WebhooksDialog
+from dialogs.blocked_users_dialog import BlockedUsersDialog
 from services.audio import stop_alert_sound, play_alert, resolve_audio_path, copy_custom_sound_to_storage
 
 class SettingsDialog(QDialog):
@@ -71,14 +72,18 @@ class SettingsDialog(QDialog):
         self.sound = QCheckBox("Звуковое оповещение за 10 минут до события")
         self.sound.setChecked(self.settings.sound_enabled)
         sound_layout.addWidget(self.sound)
+        self.incoming_alert_sound = QCheckBox("Звук алертов от других пользователей")
+        self.incoming_alert_sound.setChecked(self.settings.incoming_alert_sound_enabled)
+        sound_layout.addWidget(self.incoming_alert_sound)
 
         sound_layout.addSpacing(s(8, sc))
         self.sound_volume_label = QLabel()
         self.sound_volume_label.setObjectName("FormLabel")
         self.sound_volume_slider = DiscordSlider(sc)
         self.sound_volume_slider.setRange(0, 100)
-        self.sound_volume_slider.setValue(int(self.settings.sound_volume if self.settings.sound_enabled else 0))
+        self.sound_volume_slider.setValue(int(self.settings.sound_volume))
         self.sound.toggled.connect(self.on_sound_toggled)
+        self.incoming_alert_sound.toggled.connect(self.on_sound_toggled)
         self.sound_volume_slider.valueChanged.connect(self.on_sound_volume_changed)
         sound_layout.addWidget(self.sound_volume_label)
         sound_layout.addWidget(self.sound_volume_slider)
@@ -117,19 +122,35 @@ class SettingsDialog(QDialog):
         discord_layout = QVBoxLayout(discord_group)
         discord_layout.setContentsMargins(s(14, sc), s(12, sc), s(14, sc), s(12, sc))
         discord_layout.setSpacing(s(8, sc))
-        discord_title = QLabel("Discord-оповещения")
+        discord_title = QLabel("Онлайн-функции")
         discord_title.setObjectName("GroupTitle")
         discord_layout.addWidget(discord_title)
+
+        self.chat_enabled = QCheckBox("Чат")
+        self.chat_enabled.setChecked(self.settings.chat_enabled)
+        discord_layout.addWidget(self.chat_enabled)
+
+        self.global_notifications = QCheckBox("Получать алерты от других пользователей")
+        self.global_notifications.setChecked(self.settings.global_notifications)
+        discord_layout.addWidget(self.global_notifications)
+
+        user_id = self.app.get_user_id()
+        identity_label = QLabel(f"Ваш ID:\n{user_id[:32]}\n{user_id[32:]}")
+        identity_label.setObjectName("FormLabel")
+        identity_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        identity_label.setWordWrap(True)
+        discord_layout.addWidget(identity_label)
 
         nick_label = QLabel("Никнейм отправителя")
         nick_label.setObjectName("FormLabel")
         self.discord_nickname = QLineEdit()
+        self.discord_nickname.setMaxLength(16)
         self.discord_nickname.setPlaceholderText("Например: Westrup")
         self.discord_nickname.setText(self.settings.discord_nickname)
         discord_layout.addWidget(nick_label)
         discord_layout.addWidget(self.discord_nickname)
         
-        message_label = QLabel("Текст")
+        message_label = QLabel("Текст Discord-уведомления")
         message_label.setObjectName("FormLabel")
 
         self.discord_message = QLineEdit()
@@ -146,9 +167,14 @@ class SettingsDialog(QDialog):
         self.webhooks_btn.setFixedWidth(s(112, sc))
         self.webhooks_btn.clicked.connect(self.open_webhooks_dialog)
         webhook_row.addWidget(self.webhooks_btn)
+        blocked_btn = QPushButton("Черный список")
+        blocked_btn.setObjectName("Ghost")
+        blocked_btn.clicked.connect(lambda: BlockedUsersDialog(self).exec())
+        webhook_row.addWidget(blocked_btn)
         webhook_row.addStretch(1)
         discord_layout.addLayout(webhook_row)
         self.discord_webhooks = (list(self.settings.discord_webhooks) + [""] * 10)[:10]
+        self.update_webhooks_count()
         content_layout.addWidget(discord_group)
 
         ui_group = QFrame()
@@ -159,6 +185,14 @@ class SettingsDialog(QDialog):
         ui_title = QLabel("Интерфейс")
         ui_title.setObjectName("GroupTitle")
         ui_layout.addWidget(ui_title)
+        ui_layout.addSpacing(s(8, sc))
+
+        self.hide_to_tray = QCheckBox("Скрывать в трей при закрытии")
+        self.hide_to_tray.setChecked(self.settings.hide_to_tray)
+        ui_layout.addWidget(self.hide_to_tray)
+        self.event_enabled = QCheckBox("Event")
+        self.event_enabled.setChecked(self.settings.event_enabled)
+        ui_layout.addWidget(self.event_enabled)
         ui_layout.addSpacing(s(8, sc))
 
         self.app_scale_label = QLabel()
@@ -212,6 +246,10 @@ class SettingsDialog(QDialog):
         self.overlay.setChecked(self.settings.overlay_enabled)
         self.block1 = QCheckBox("Императорское древо")
         self.block1.setChecked(self.settings.overlay_block1)
+        self.block2 = QCheckBox("Event")
+        self.block2.setChecked(self.settings.overlay_block2)
+        self.block2.setEnabled(self.settings.event_enabled)
+        self.event_enabled.toggled.connect(self.on_event_toggled)
         self.block3 = QCheckBox("Мировой босс")
         self.block3.setChecked(self.settings.overlay_block3)
         self.lock = QCheckBox("Закрепить оверлей")
@@ -219,11 +257,13 @@ class SettingsDialog(QDialog):
 
         overlay_layout.addWidget(self.overlay)
         overlay_layout.addLayout(self._indented_checkbox(self.block1, sc))
+        overlay_layout.addLayout(self._indented_checkbox(self.block2, sc))
         overlay_layout.addLayout(self._indented_checkbox(self.block3, sc))
         overlay_layout.addWidget(self.lock)
 
         self.overlay.toggled.connect(self.on_overlay_toggled)
         self.block1.toggled.connect(self.on_overlay_block_toggled)
+        self.block2.toggled.connect(self.on_overlay_block_toggled)
         self.block3.toggled.connect(self.on_overlay_block_toggled)
 
         overlay_layout.addSpacing(s(8, sc))
@@ -269,15 +309,9 @@ class SettingsDialog(QDialog):
         if checked:
             if self.sound_volume_slider.value() <= 0:
                 self.sound_volume_slider.setValue(50)
-        else:
-            if self.sound_volume_slider.value() != 0:
-                self.sound_volume_slider.setValue(0)
         self.update_labels()
 
     def on_sound_volume_changed(self, value: int):
-        self.sound.blockSignals(True)
-        self.sound.setChecked(value > 0)
-        self.sound.blockSignals(False)
         self.update_labels()
 
     def update_custom_sound_button(self):
@@ -330,7 +364,9 @@ class SettingsDialog(QDialog):
         except Exception as exc:
             MessageDialog(self, "Ошибка", "Не удалось скопировать файл.",str(exc)).exec()
 
-    def update_webhooks_count(self): pass
+    def update_webhooks_count(self):
+        count = sum(1 for url in self.discord_webhooks if str(url).strip())
+        self.webhooks_btn.setText(f"Вебхуки ({count})" if count else "Вебхуки")
 
     def open_webhooks_dialog(self):
         dialog = WebhooksDialog(self, self.discord_webhooks)
@@ -350,17 +386,25 @@ class SettingsDialog(QDialog):
     def on_overlay_toggled(self, checked: bool):
         if not checked:
             self.block1.blockSignals(True)
+            self.block2.blockSignals(True)
             self.block3.blockSignals(True)
             self.block1.setChecked(False)
+            self.block2.setChecked(False)
             self.block3.setChecked(False)
             self.block1.blockSignals(False)
+            self.block2.blockSignals(False)
             self.block3.blockSignals(False)
+
+    def on_event_toggled(self, checked: bool):
+        self.block2.setEnabled(checked)
+        if not checked:
+            self.block2.setChecked(False)
 
     def on_overlay_block_toggled(self, checked: bool):
         if checked and not self.overlay.isChecked():
             self.overlay.setChecked(True)
             return
-        if not self.block1.isChecked() and not self.block3.isChecked() and self.overlay.isChecked():
+        if not self.block1.isChecked() and not self.block2.isChecked() and not self.block3.isChecked() and self.overlay.isChecked():
             self.overlay.setChecked(False)
 
     def _range_percent(self, value: int, minimum: int, maximum: int) -> int:
@@ -376,26 +420,33 @@ class SettingsDialog(QDialog):
         self.overlay_scale_label.setText(f"Размер оверлея: {overlay_percent}%")
 
     def apply(self):
+        nickname = self.discord_nickname.text().strip()
         volume_value = max(0, min(100, int(self.sound_volume_slider.value())))
         self.settings.sound_volume = volume_value
         self.settings.sound_enabled = self.sound.isChecked() and volume_value > 0
+        self.settings.incoming_alert_sound_enabled = self.incoming_alert_sound.isChecked() and volume_value > 0
         custom_sound_value = str(getattr(self, "custom_sound_value", "")).strip()
         if custom_sound_value and os.path.exists(resolve_audio_path(custom_sound_value)):
             try: custom_sound_value = copy_custom_sound_to_storage(custom_sound_value) or custom_sound_value
             except Exception: pass
         self.settings.custom_sound_path = custom_sound_value
-        self.settings.discord_nickname = self.discord_nickname.text().strip()
+        self.settings.discord_nickname = nickname[:16]
         message = self.discord_message.text().strip()
         self.settings.discord_message = message or "@everyone 🚨 Императорское древо"
         self.settings.discord_webhooks = (list(self.discord_webhooks) + [""] * 10)[:10]
+        self.settings.chat_enabled = self.chat_enabled.isChecked()
+        self.settings.global_notifications = self.global_notifications.isChecked()
+        self.settings.hide_to_tray = self.hide_to_tray.isChecked()
+        self.settings.event_enabled = self.event_enabled.isChecked()
         self.settings.update_check_interval = self.update_interval.currentData()
         block1_enabled = self.block1.isChecked()
+        block2_enabled = self.block2.isChecked() and self.settings.event_enabled
         block3_enabled = self.block3.isChecked()
-        overlay_enabled = self.overlay.isChecked() and (block1_enabled or block3_enabled)
+        overlay_enabled = self.overlay.isChecked() and (block1_enabled or block2_enabled or block3_enabled)
         self.settings.overlay_enabled = overlay_enabled
         self.settings.overlay_locked = self.lock.isChecked()
         self.settings.overlay_block1 = block1_enabled if overlay_enabled else False
-        self.settings.overlay_block2 = False
+        self.settings.overlay_block2 = block2_enabled if overlay_enabled else False
         self.settings.overlay_block3 = block3_enabled if overlay_enabled else False
         self.settings.overlay_alpha = 1 - (self.alpha_slider.value() / 100)
         self.settings.app_scale = self.app_scale_slider.value() / 100
@@ -403,10 +454,13 @@ class SettingsDialog(QDialog):
         self.settings.save()
         self.app.apply_visual_settings(rebuild=True)
         self.app.apply_overlay_settings()
+        if self.app.chat_dialog is not None:
+            self.app.chat_dialog.update_enabled_state()
+        return True
 
     def save_and_close(self):
-        self.apply()
-        self.close()
+        if self.apply():
+            self.close()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

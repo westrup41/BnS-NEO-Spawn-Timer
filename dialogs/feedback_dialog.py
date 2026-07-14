@@ -95,13 +95,12 @@ class FeedbackDialog(QDialog):
 
     def on_feedback_result(self, ok: bool, error: str):
         if ok:
-            self.parent_window.notify_signal.emit("Отзыв", "Отзыв отправлен успешно.")
             log("Отзыв отправлен")
+            MessageDialog(self, "Отзыв", "Отзыв отправлен успешно.").exec()
             self.close()
             return
         self.send_btn.setEnabled(True)
         self.send_btn.setText("Отправить")
-        self.parent_window.notify_signal.emit("Отзыв", "Не удалось отправить отзыв.")
         log(f"Ошибка отправки отзыва: {error}")
         MessageDialog(self, "Отзыв", "Не удалось отправить отзыв.").exec()
 

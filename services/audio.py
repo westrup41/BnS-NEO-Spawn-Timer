@@ -24,32 +24,37 @@ except Exception:
 
 from config import SUPPORTED_AUDIO_EXTENSIONS, USER_SOUNDS_DIR
 
-ALERT_WAV_PATH = os.path.join(tempfile.gettempdir(), "bs_neo_soft_chime_v2.wav")
+ALERT_WAV_PATH = os.path.join(tempfile.gettempdir(), "bs_neo_soft_chime_v3.wav")
 _MEDIA_PLAYERS = []
 
 def ensure_alert_wav() -> str:
     if os.path.exists(ALERT_WAV_PATH) and os.path.getsize(ALERT_WAV_PATH) > 1024:
         return ALERT_WAV_PATH
     sample_rate = 44100
-    volume = 0.20
-    sequence = [(659.25, 0.18), (0.0, 0.045), (880.00, 0.24)]
+    volume = 0.13
+    duration = 0.78
+    notes = [
+        (0.00, 523.25, 0.42, 1.00),
+        (0.13, 659.25, 0.46, 0.82),
+        (0.27, 783.99, 0.50, 0.68),
+    ]
     frames = []
-    for frequency, duration in sequence:
-        count = max(1, int(sample_rate * duration))
-        for index in range(count):
-            if frequency <= 0:
-                sample = 0.0
-            else:
-                t = index / sample_rate
-                fade_in = min(1.0, index / max(1, int(sample_rate * 0.010)))
-                decay = math.exp(-3.2 * index / count)
-                fade_out = min(1.0, (count - index) / max(1, int(sample_rate * 0.035)))
-                envelope = fade_in * decay * fade_out
-                fundamental = math.sin(2 * math.pi * frequency * t)
-                overtone = 0.18 * math.sin(2 * math.pi * frequency * 2.0 * t)
-                soft_tail = 0.08 * math.sin(2 * math.pi * frequency * 0.5 * t)
-                sample = (fundamental + overtone + soft_tail) * volume * envelope
-            frames.append(struct.pack("<h", max(-32767, min(32767, int(sample * 32767)))))
+    count = int(sample_rate * duration)
+    for index in range(count):
+        t = index / sample_rate
+        sample = 0.0
+        for start, frequency, length, strength in notes:
+            local_t = t - start
+            if local_t < 0 or local_t > length:
+                continue
+            attack = min(1.0, local_t / 0.018)
+            release = max(0.0, 1.0 - local_t / length)
+            envelope = attack * release * release * strength
+            tone = math.sin(2 * math.pi * frequency * local_t)
+            shimmer = 0.16 * math.sin(2 * math.pi * frequency * 2.01 * local_t)
+            sample += (tone + shimmer) * envelope
+        sample *= volume
+        frames.append(struct.pack("<h", max(-32767, min(32767, int(sample * 32767)))))
     with wave.open(ALERT_WAV_PATH, "wb") as wav:
         wav.setnchannels(1)
         wav.setsampwidth(2)
@@ -166,8 +171,8 @@ def play_alert(sound_enabled: bool, custom_sound_path: str = "", volume_percent:
         try: winsound.PlaySound(default_path, winsound.SND_FILENAME | winsound.SND_ASYNC)
         except Exception:
             try:
-                winsound.Beep(659, 140)
-                winsound.Beep(880, 180)
+                winsound.Beep(523, 120)
+                winsound.Beep(659, 150)
             except Exception: pass
     threading.Thread(target=worker, daemon=True).start()
     if on_finished is not None: QTimer.singleShot(_wav_duration_ms(default_path), on_finished)

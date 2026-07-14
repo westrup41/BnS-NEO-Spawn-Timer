@@ -2,7 +2,7 @@ from datetime import datetime
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QSizePolicy
 from PySide6.QtCore import Qt, QTimer
 from utils import s
-from config import COLORS
+from config import COLORS, CHAT_COOLDOWN
 
 class TimerRow(QFrame):
     def __init__(self, name: str, app):
@@ -54,59 +54,64 @@ class TimerRow(QFrame):
         self.restart_btn.clicked.connect(self.restart)
         layout.addWidget(self.restart_btn)
 
-        self.discord_btn = QPushButton("🚨")
-        self.discord_btn.setObjectName("Danger")
-        self.discord_btn.setToolTip("Отправить Discord-оповещение")
-        self.discord_btn.setFixedSize(s(40, sc), s(36, sc))
-        self.discord_btn.clicked.connect(self.send_discord_alert)
-        layout.addWidget(self.discord_btn)
+        self.announce_btn = QPushButton("🚨")
+        self.announce_btn.setObjectName("Danger")
+        self.announce_btn.setFixedSize(s(40, sc), s(36, sc))
+        self.announce_btn.clicked.connect(self.announce_spawn)
+        layout.addWidget(self.announce_btn)
 
-        self.discord_cooldown_remaining = 0
-        self.discord_cooldown_timer = QTimer(self)
-        self.discord_cooldown_timer.setInterval(1000)
-        self.discord_cooldown_timer.timeout.connect(self.update_discord_cooldown)
-        self.refresh_discord_button_visual()
+        self.announce_cooldown_remaining = self.app.get_announce_cooldown(self.name)
+        self.announce_cooldown_timer = QTimer(self)
+        self.announce_cooldown_timer.setInterval(1000)
+        self.announce_cooldown_timer.timeout.connect(self.update_announce_cooldown)
+        if self.announce_cooldown_remaining > 0:
+            self.announce_cooldown_timer.start()
+        self.refresh_announce_button_visual()
 
-    def send_discord_alert(self):
-        if self.discord_cooldown_remaining > 0:
+    def announce_spawn(self):
+        if self.announce_cooldown_remaining > 0:
             return
-        sent_started = self.app.send_discord_alert(self.name)
+        sent_started = self.app.announce_spawn(self.name)
         if sent_started:
-            self.start_discord_cooldown(30)
+            self.start_announce_cooldown(CHAT_COOLDOWN)
 
-    def refresh_discord_button_visual(self):
-        cooldown_active = self.discord_cooldown_remaining > 0
-        no_webhook = not self.app.has_discord_webhooks()
-        self.discord_btn.setProperty("cooldown", "true" if cooldown_active else "false")
-        self.discord_btn.setProperty("no_webhook", "true" if (no_webhook and not cooldown_active) else "false")
-        self.discord_btn.setEnabled(not cooldown_active)
-        self.discord_btn.setText("🚨")
-        self.discord_btn.style().unpolish(self.discord_btn)
-        self.discord_btn.style().polish(self.discord_btn)
-        self.discord_btn.update()
+    def refresh_announce_button_visual(self):
+        cooldown_active = self.announce_cooldown_remaining > 0
+        no_internet = not self.app.internet_available
+        self.announce_btn.setProperty("cooldown", "true" if cooldown_active else "false")
+        self.announce_btn.setProperty("no_internet", "true" if no_internet else "false")
+        self.announce_btn.setEnabled(not cooldown_active and not no_internet)
+        self.announce_btn.setText("🚨")
+        self.announce_btn.setToolTip(
+            "Нет доступа в интернет" if no_internet else
+            (f"Повторная отправка через {self.announce_cooldown_remaining} сек." if cooldown_active else "Сообщить о появлении")
+        )
+        self.announce_btn.style().unpolish(self.announce_btn)
+        self.announce_btn.style().polish(self.announce_btn)
+        self.announce_btn.update()
 
-    def set_discord_cooldown_visual(self, active: bool):
-        self.discord_cooldown_remaining = max(1, self.discord_cooldown_remaining) if active else 0
-        self.refresh_discord_button_visual()
+    def set_announce_cooldown_visual(self, active: bool):
+        self.announce_cooldown_remaining = max(1, self.announce_cooldown_remaining) if active else 0
+        self.refresh_announce_button_visual()
 
-    def start_discord_cooldown(self, seconds: int):
-        self.discord_cooldown_remaining = max(0, int(seconds))
-        if self.discord_cooldown_remaining > 0:
-            self.refresh_discord_button_visual()
-            self.discord_cooldown_timer.start()
+    def start_announce_cooldown(self, seconds: int):
+        self.announce_cooldown_remaining = max(0, int(seconds))
+        if self.announce_cooldown_remaining > 0:
+            self.refresh_announce_button_visual()
+            self.announce_cooldown_timer.start()
         else:
-            self.discord_cooldown_timer.stop()
-            self.refresh_discord_button_visual()
+            self.announce_cooldown_timer.stop()
+            self.refresh_announce_button_visual()
 
-    def update_discord_cooldown(self):
-        self.discord_cooldown_remaining -= 1
-        if self.discord_cooldown_remaining <= 0:
-            self.discord_cooldown_timer.stop()
-            self.discord_cooldown_remaining = 0
-        self.refresh_discord_button_visual()
+    def update_announce_cooldown(self):
+        self.announce_cooldown_remaining -= 1
+        if self.announce_cooldown_remaining <= 0:
+            self.announce_cooldown_timer.stop()
+            self.announce_cooldown_remaining = 0
+        self.refresh_announce_button_visual()
 
     def toggle(self):
-        if self.name in self.app.active_timers:
+        if self.name in self.app.active_timers or self.name in self.app.spawn_effects:
             self.app.stop_timer(self.name)
         else:
             self.app.start_timer(self.name, datetime.now())
@@ -121,11 +126,18 @@ class TimerRow(QFrame):
         self.style().unpolish(self)
         self.style().polish(self)
         self.interval_label.setText(values.get("interval", ""))
-        self.timer_label.setText(values.get("timer", "--:--:--"))
+        if status == "detected":
+            self.timer_label.setText("Появляется")
+            self.interval_label.hide()
+        else:
+            self.timer_label.setText(values.get("timer", "--:--:--"))
+            self.interval_label.show()
         if status == "active":
             color = COLORS["success"]
         elif status == "hot":
             color = COLORS["timer_hot"]
+        elif status == "detected":
+            color = COLORS["danger"]
         elif status == "idle":
             color = COLORS["text_disabled"]
         else:
@@ -136,3 +148,9 @@ class TimerRow(QFrame):
         self.toggle_btn.style().unpolish(self.toggle_btn)
         self.toggle_btn.style().polish(self.toggle_btn)
         self.restart_btn.setEnabled(active)
+
+    def set_spawn_blink(self, active: bool):
+        self.setProperty("spawn_alert", "true" if active else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()

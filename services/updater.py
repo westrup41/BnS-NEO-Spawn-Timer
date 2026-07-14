@@ -71,21 +71,24 @@ class UpdateManager:
             return latest != APP_VERSION
         
     def check(self, force=False):
+        return self.check_with_status(force=force).get("update")
+
+    def check_with_status(self, force=False):
         if not force and not self.should_check():
-            return None
+            return {"status": "skipped", "update": None}
 
         self.settings.last_update_check = datetime.now().isoformat()
         self.settings.save()
 
         try:
             latest = self.fetch_latest()
-        except Exception:
-            return None
+        except Exception as exc:
+            return {"status": "error", "update": None, "error": str(exc)}
 
         if not latest:
-            return None
+            return {"status": "error", "update": None}
 
         if not self.versions_different(latest["version"]):
-            return None
+            return {"status": "current", "update": None, "latest": latest.get("version", "")}
 
-        return latest
+        return {"status": "update", "update": latest}

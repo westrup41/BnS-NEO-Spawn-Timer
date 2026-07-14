@@ -2,7 +2,7 @@ from datetime import timedelta, timezone
 from paths import APP_DIR
 from paths import APP_DIR, USER_SOUNDS_DIR
 
-APP_VERSION = "v3.0"
+APP_VERSION = "v4.0"
 APP_NAME = "B&S NEO Spawn Timer"
 AUTHOR = "westrup"
 GITHUB_URL = "https://github.com/westrup41/BnS-NEO-Spawn-Timer"
@@ -12,6 +12,13 @@ SETTINGS_FILE = APP_DIR / "settings.json"
 SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".ogg", ".flac", ".m4a", ".aac", ".wma"}
 FEEDBACK_WEBHOOK_URL = "https://discord.com/api/webhooks/1518467190511108108/mCPyupFdNGFzwYyQRPPWE0yyewj-6_gMYSdDb4Oj5K7QnLTes63xJv1urS_eF5cARNhR"
 MSK = timezone(timedelta(hours=3))
+PROTOCOL_VERSION = 2
+CHAT_MAX_MESSAGES = 100
+CHAT_MAX_LENGTH = 120
+CHAT_COOLDOWN = 30
+SPAWN_EFFECT_SECONDS = 60
+BLINK_INTERVAL_MS = 500
+NETWORK_TOPIC = "bnsneo"
 
 COLORS = {
     "bg_main": "#313338", "bg_card": "#2B2D31", "bg_panel": "#24262B",

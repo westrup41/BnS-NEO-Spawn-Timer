@@ -15,6 +15,9 @@ class OverlayWindow(QWidget):
         self.timer_labels = {}
         self.world_name_label = None
         self.world_timer_label = None
+        self.event_name_label = None
+        self.event_timer_label = None
+        self.event_day_label = None
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setWindowOpacity(self.settings.overlay_alpha)
         self.move(self.settings.overlay_pos_x, self.settings.overlay_pos_y)
@@ -45,6 +48,9 @@ class OverlayWindow(QWidget):
         self.timer_labels.clear()
         self.world_name_label = None
         self.world_timer_label = None
+        self.event_name_label = None
+        self.event_timer_label = None
+        self.event_day_label = None
 
         if not self.settings.overlay_block1 and not self.settings.overlay_block2 and not self.settings.overlay_block3:
             self.resize(1, 1)
@@ -53,6 +59,8 @@ class OverlayWindow(QWidget):
         for block in self.selected_blocks():
             self.root_layout.addWidget(self.make_timer_bubble(block))
 
+        if self.settings.overlay_block2 and self.settings.event_enabled:
+            self.root_layout.addWidget(self.make_event_bubble())
         if self.settings.overlay_block3:
             self.root_layout.addWidget(self.make_world_bubble())
         self.adjustSize()
@@ -77,7 +85,11 @@ class OverlayWindow(QWidget):
         layout.addWidget(line)
 
         for name in block["names"]:
-            row = QHBoxLayout()
+            row_frame = QFrame()
+            row_frame.setObjectName("OverlayTimerRow")
+            row_frame.setProperty("spawn_alert", "false")
+            row = QHBoxLayout(row_frame)
+            row.setContentsMargins(s(5, sc), s(3, sc), s(5, sc), s(3, sc))
             row.setSpacing(s(6, sc))
             name_label = QLabel(name)
             name_label.setObjectName("OverlayName")
@@ -98,8 +110,8 @@ class OverlayWindow(QWidget):
             right.addWidget(interval)
             row.addLayout(right)
 
-            layout.addLayout(row)
-            self.timer_labels[name] = {"timer": timer, "interval": interval}
+            layout.addWidget(row_frame)
+            self.timer_labels[name] = {"timer": timer, "interval": interval, "frame": row_frame}
         return bubble
 
     def make_world_bubble(self):
@@ -131,6 +143,42 @@ class OverlayWindow(QWidget):
         layout.addWidget(self.world_timer_label)
         return bubble
 
+    def make_event_bubble(self):
+        sc = self.settings.overlay_scale
+        bubble = QFrame()
+        bubble.setObjectName("OverlayBubble")
+        bubble.setFixedWidth(s(236, sc))
+        layout = QVBoxLayout(bubble)
+        layout.setContentsMargins(s(12, sc), s(11, sc), s(12, sc), s(12, sc))
+        layout.setSpacing(s(6, sc))
+        title = QLabel("Event")
+        title.setObjectName("OverlayTitle")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        line = QFrame()
+        line.setObjectName("OverlayLine")
+        line.setFixedHeight(1)
+        layout.addWidget(line)
+        self.event_name_label = QLabel("No_Text")
+        self.event_name_label.setObjectName("OverlayWorldName")
+        self.event_name_label.setAlignment(Qt.AlignCenter)
+        self.event_name_label.setWordWrap(True)
+        self.event_timer_label = QLabel("--:--:--")
+        self.event_timer_label.setObjectName("OverlayWorldTimer")
+        self.event_timer_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.event_name_label)
+        timer_row = QHBoxLayout()
+        self.event_day_label = QLabel("")
+        self.event_day_label.setObjectName("OverlayDayBadge")
+        self.event_day_label.setAlignment(Qt.AlignCenter)
+        self.event_day_label.hide()
+        timer_row.addStretch(1)
+        timer_row.addWidget(self.event_day_label)
+        timer_row.addWidget(self.event_timer_label)
+        timer_row.addStretch(1)
+        layout.addLayout(timer_row)
+        return bubble
+
     def apply_settings(self):
         self.setWindowOpacity(self.settings.overlay_alpha)
         self.build()
@@ -151,15 +199,30 @@ class OverlayWindow(QWidget):
             labels["timer"].setText(values.get("timer", "--:--:--"))
             labels["interval"].setText(values.get("interval", ""))
             status = values.get("status", "idle")
+            labels["interval"].setVisible(status != "detected")
             if status == "active":
                 color = COLORS["success"]
             elif status == "hot":
                 color = COLORS["timer_hot"]
             elif status == "idle":
                 color = COLORS["text_disabled"]
+            elif status == "detected":
+                color = COLORS["danger"]
             else:
                 color = COLORS["text_main"]
             labels["timer"].setStyleSheet(f"color: {color};")
+
+    def set_spawn_blink(self, channel: str, active: bool):
+        labels = self.timer_labels.get(channel)
+        if not labels:
+            return
+        frame = labels.get("frame")
+        if frame is None:
+            return
+        frame.setProperty("spawn_alert", "true" if active else "false")
+        frame.style().unpolish(frame)
+        frame.style().polish(frame)
+        frame.update()
 
     def update_world(self, name: str, timer_text: str, status: str):
         if self.world_name_label is None or self.world_timer_label is None:
@@ -173,6 +236,22 @@ class OverlayWindow(QWidget):
         else:
             color = COLORS["text_main"]
         self.world_timer_label.setStyleSheet(f"color: {color};")
+
+    def update_event(self, name: str, timer_text: str, status: str, days: int = 0):
+        if self.event_name_label is None or self.event_timer_label is None:
+            return
+        self.event_name_label.setText(name or "No_Text")
+        self.event_timer_label.setText(timer_text or "--:--:--")
+        if self.event_day_label is not None:
+            self.event_day_label.setText(f"{days} сут.")
+            self.event_day_label.setVisible(days > 0 and status not in ("appearing", "idle"))
+        if status == "hot":
+            color = COLORS["timer_hot"]
+        elif status == "appearing":
+            color = COLORS["success"]
+        else:
+            color = COLORS["text_main"]
+        self.event_timer_label.setStyleSheet(f"color: {color};")
 
     def mousePressEvent(self, event):
         if self.settings.overlay_locked: return
