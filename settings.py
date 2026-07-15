@@ -1,10 +1,14 @@
 import json
 import os
 import shutil
+import threading
 from pathlib import Path
 from paths import APP_DIR
 from dataclasses import dataclass, field
 from config import SETTINGS_FILE
+
+
+_SETTINGS_SAVE_LOCK = threading.RLock()
 
 @dataclass
 class AppSettings:
@@ -24,7 +28,9 @@ class AppSettings:
     overlay_block3: bool = False
     overlay_pos_x: int = 100
     overlay_pos_y: int = 100
-    overlay_alpha: float = 1.00
+    # 6% transparency matches the previous visual default. The overlay card
+    # itself is now fully opaque at 0%; all transparency comes from this value.
+    overlay_alpha: float = 0.94
     app_scale: float = 1.02
     ui_theme: str = "classic"
     theme_choice_version: int = 0
@@ -179,9 +185,14 @@ class AppSettings:
         return settings
 
     def save(self):
-        data = {key: getattr(self, key) for key in self.__dataclass_fields__}
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as file:
-            json.dump(data, file, ensure_ascii=False, indent=2)
+        with _SETTINGS_SAVE_LOCK:
+            data = {key: getattr(self, key) for key in self.__dataclass_fields__}
+            temp_path = SETTINGS_FILE.with_suffix(".tmp")
+            with open(temp_path, "w", encoding="utf-8") as file:
+                json.dump(data, file, ensure_ascii=False, indent=2)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temp_path, SETTINGS_FILE)
 
     def export_public(self):
         """Portable user configuration; identity keys and transient state are excluded."""

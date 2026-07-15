@@ -83,7 +83,7 @@ class Style:
         QScrollBar:vertical { background: #E0E4EB; }
         QScrollBar::handle:vertical { background: #8A7BE5; }
         QLabel#ChatBadge { border-color: #EEF1F6; }
-        QFrame#OverlayBubble { background: rgba(255,255,255,0.96); border-color: rgba(190,198,211,0.96); }
+        QFrame#OverlayBubble { background: #FFFFFF; border-color: #BEC6D3; }
         QLabel#OverlayName, QLabel#OverlayWorldName { color: #171A23; }
         QFrame#OverlayLine { background: rgba(102,112,133,0.28); }
         """
@@ -189,7 +189,7 @@ class Style:
     def overlay(scale: float) -> str:
         css = f"""
         QWidget {{ background: transparent; color: {COLORS['text_main']}; font-family: "Segoe UI"; }}
-        QFrame#OverlayBubble {{ background: rgba(43,45,49,0.94); border: 1px solid rgba(76,82,96,0.95); border-radius: {s(18, scale)}px; }}
+        QFrame#OverlayBubble {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; border-radius: {s(18, scale)}px; }}
         QFrame#OverlayTimerRow {{ background: transparent; border: 1px solid transparent; border-radius: {s(9, scale)}px; }}
         QFrame#OverlayTimerRow[spawn_alert="true"] {{ background: rgba(218,55,60,0.24); border: 2px solid {COLORS['danger']}; }}
         QLabel#OverlayTitle {{ color: {COLORS['accent']}; font-size: {s(13, scale)}px; font-weight: 900; }}

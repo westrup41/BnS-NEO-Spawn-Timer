@@ -50,6 +50,7 @@ class NetworkManager(QObject):
         self._seen_packets = set()
         self._seen_lock = threading.Lock()
         self._status_lock = threading.Lock()
+        self._reconnect_lock = threading.Lock()
         self._global_cipher = AESGCM(ROOM_SECRET)
         self._room_code = str(
             getattr(app.settings, "online_room_code", "")
@@ -70,7 +71,8 @@ class NetworkManager(QObject):
         if not self.started:
             return
         self.started = False
-        self._relay.stop()
+        with self._reconnect_lock:
+            self._relay.stop()
         self.peers.clear()
         self._set_online(False)
 
@@ -159,7 +161,8 @@ class NetworkManager(QObject):
                 used_global_fallback = bool(self._room_code)
             decompressor = zlib.decompressobj()
             raw = decompressor.decompress(compressed, MAX_WIRE_BYTES + 1)
-            if len(raw) > MAX_WIRE_BYTES or decompressor.unconsumed_tail:
+            if (len(raw) > MAX_WIRE_BYTES or decompressor.unconsumed_tail
+                    or decompressor.unused_data or not decompressor.eof):
                 return
             packet = json.loads(raw.decode("utf-8"))
         except Exception:
@@ -171,16 +174,19 @@ class NetworkManager(QObject):
     def _on_relay_status(self, _connection, _connected):
         with self._status_lock:
             online = self.started and self._relay.online_count() > 0
-        was_online = self.internet_available
-        self._set_online(online)
-        if online and (_connected or not was_online):
+        became_online = self._set_online(online)
+        if online and became_online:
             self.send_hello()
 
     def _set_online(self, online: bool):
         online = bool(online)
-        if online != self.internet_available:
-            self.internet_available = online
+        with self._status_lock:
+            changed = online != self.internet_available
+            if changed:
+                self.internet_available = online
+        if changed:
             self.online_changed.emit(online)
+        return changed and online
 
     def receive(self, packet: dict):
         if not isinstance(packet, dict):
@@ -214,7 +220,17 @@ class NetworkManager(QObject):
         elif packet_type == "sync":
             messages = packet.get("messages", [])
             if isinstance(messages, list):
-                self.history_received.emit(messages[:100])
+                verified_messages = []
+                for message in messages[:100]:
+                    if not isinstance(message, dict):
+                        continue
+                    if message.get("type") not in ("chat", "spawn"):
+                        continue
+                    if message.get("author_id") != message.get("signer_id"):
+                        continue
+                    if UserIdentity.verify(message):
+                        verified_messages.append(message)
+                self.history_received.emit(verified_messages)
             commands = packet.get("admin_commands", [])
             if isinstance(commands, list):
                 for command in commands[-1000:]:
@@ -261,8 +277,18 @@ class NetworkManager(QObject):
         return self._relay.diagnostics()
 
     def reconnect(self):
-        if self.started:
-            self._relay.reconnect()
+        if not self.started or not self._reconnect_lock.acquire(blocking=False):
+            return False
+        try:
+            if not self.started:
+                return False
+            self._relay.stop()
+            if not self.started:
+                return False
+            self._relay.start()
+            return True
+        finally:
+            self._reconnect_lock.release()
 
     @staticmethod
     def _derive_room_secret(room_code: str) -> bytes:
@@ -282,7 +308,9 @@ class NetworkManager(QObject):
         self.peers.clear()
         with self._seen_lock:
             self._seen_packets.clear()
-        self.reconnect()
+        self._set_online(False)
+        if self.started:
+            threading.Thread(target=self.reconnect, name="mqtt-room-reconnect", daemon=True).start()
 
     def room_label(self):
         return "Глобальная" if not self._room_code else "Приватная"

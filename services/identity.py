@@ -79,8 +79,12 @@ class UserIdentity:
             )
             protected = _dpapi(raw, protect=True)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.path, "w", encoding="utf-8") as file:
+            temp_path = self.path.with_suffix(".tmp")
+            with open(temp_path, "w", encoding="utf-8") as file:
                 json.dump({"version": 1, "private_key": base64.b64encode(protected).decode("ascii")}, file)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temp_path, self.path)
             return private_key
 
     @staticmethod

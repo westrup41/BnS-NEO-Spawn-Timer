@@ -311,7 +311,33 @@ class EventSettingsDialog(QDialog):
                 payload = json.load(file)
             if payload.get("format") != "bns-neo-event" or not isinstance(payload.get("schedule"), dict):
                 raise ValueError("Это не файл расписания Event")
-            self.settings.event_schedule = payload["schedule"]
+            imported_schedule = payload["schedule"]
+            normalized_schedule = {}
+            for day in range(7):
+                source_rows = imported_schedule.get(str(day), imported_schedule.get(day, []))
+                if not isinstance(source_rows, list):
+                    raise ValueError(f"{DAYS[day]}: неверный список событий")
+                rows = []
+                for row in source_rows[:10]:
+                    if not isinstance(row, dict):
+                        raise ValueError(f"{DAYS[day]}: повреждённая строка события")
+                    time_text = str(row.get("time") or "").strip()
+                    if time_text:
+                        try:
+                            hour, minute = map(int, time_text.split(":"))
+                            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                                raise ValueError
+                        except Exception:
+                            raise ValueError(f"{DAYS[day]}: неверное время {time_text}")
+                        time_text = f"{hour:02d}:{minute:02d}"
+                    rows.append({
+                        "name": str(row.get("name") or "No_Text")[:30],
+                        "time": time_text,
+                    })
+                while len(rows) < 3:
+                    rows.append({"name": "No_Text", "time": ""})
+                normalized_schedule[str(day)] = rows
+            self.settings.event_schedule = normalized_schedule
             self.settings.event_appearance_minutes = max(1, min(59, int(payload.get("appearance_minutes", 5))))
             self.settings.save()
             MessageDialog(self, "Импорт завершён", "Расписание загружено. Откройте окно Event заново для проверки.").exec()

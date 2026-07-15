@@ -50,18 +50,34 @@ class ChatHistory:
     def _normalize(self, message):
         result = dict(message)
         is_signed = bool(result.get("signature"))
-        if is_signed and not UserIdentity.verify(result):
-            return None
-        result["id"] = str(result.get("id") or uuid.uuid4())
-        result["type"] = "spawn" if result.get("type") == "spawn" else "chat"
-        if result["type"] == "spawn":
-            if not is_signed or result.get("author_id") != result.get("signer_id"):
+        if is_signed:
+            if not UserIdentity.verify(result):
                 return None
-        result["nickname"] = str(result.get("nickname") or "Неизвестный")[:40]
-        result["author_id"] = str(result.get("author_id") or result["nickname"])
-        result["message"] = str(result.get("message") or "")[:CHAT_MAX_LENGTH]
-        result["channel"] = str(result.get("channel") or "")
-        result["timestamp"] = str(result.get("timestamp") or datetime.now().isoformat())
+            if result.get("type") not in ("chat", "spawn"):
+                return None
+            if result.get("author_id") != result.get("signer_id"):
+                return None
+            required_strings = ("id", "nickname", "author_id", "message", "timestamp")
+            if any(not isinstance(result.get(key), str) for key in required_strings):
+                return None
+            if (not result["id"] or not result["author_id"] or not result["message"].strip()
+                    or len(result["nickname"]) > 16
+                    or len(result["message"]) > CHAT_MAX_LENGTH):
+                return None
+            if result["type"] == "spawn" and not isinstance(result.get("channel"), str):
+                return None
+        else:
+            # Keep compatibility with local histories created before packets
+            # were signed. Unsigned messages are never accepted from the wire.
+            result["id"] = str(result.get("id") or uuid.uuid4())
+            result["type"] = "spawn" if result.get("type") == "spawn" else "chat"
+            if result["type"] == "spawn":
+                return None
+            result["nickname"] = str(result.get("nickname") or "Неизвестный")[:16]
+            result["author_id"] = str(result.get("author_id") or result["nickname"])
+            result["message"] = str(result.get("message") or "")[:CHAT_MAX_LENGTH]
+            result["channel"] = str(result.get("channel") or "")
+            result["timestamp"] = str(result.get("timestamp") or datetime.now().isoformat())
         proofs = result.get("reaction_proofs", {})
         valid_proofs = {}
         if isinstance(proofs, dict):
@@ -75,8 +91,11 @@ class ChatHistory:
                     or proof.get("signer_id") != voter
                 ):
                     continue
-                value = int(proof.get("value", 0))
-                if value:
+                try:
+                    value = int(proof.get("value", 0))
+                except (TypeError, ValueError):
+                    continue
+                if value in (-1, 1):
                     valid_proofs[str(voter)] = proof
         result["reaction_proofs"] = valid_proofs
         result["reactions"] = {
@@ -134,7 +153,12 @@ class ChatHistory:
         voter_id = str(packet.get("voter_id", ""))
         if packet.get("type") != "reaction" or packet.get("signer_id") != voter_id:
             return False
-        value = int(packet.get("value", 0))
+        try:
+            value = int(packet.get("value", 0))
+        except (TypeError, ValueError):
+            return False
+        if value not in (-1, 0, 1):
+            return False
         with self._lock:
             for message in self._messages:
                 if message["id"] != str(message_id) or message["type"] != "spawn":

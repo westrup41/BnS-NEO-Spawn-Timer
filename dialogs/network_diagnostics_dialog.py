@@ -1,4 +1,6 @@
-from PySide6.QtCore import Qt, QTimer
+import threading
+
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from styles import Style
@@ -6,6 +8,8 @@ from utils import s
 
 
 class NetworkDiagnosticsDialog(QDialog):
+    reconnect_finished = Signal()
+
     def __init__(self, parent):
         super().__init__(parent)
         self.setObjectName("StandaloneDialog")
@@ -22,15 +26,35 @@ class NetworkDiagnosticsDialog(QDialog):
         root.addLayout(self.rows)
         root.addStretch(1)
         buttons = QHBoxLayout()
-        reconnect = QPushButton("Переподключить")
-        reconnect.setObjectName("Primary")
-        reconnect.clicked.connect(self.app.network.reconnect)
-        buttons.addWidget(reconnect)
+        self.reconnect_btn = QPushButton("Переподключить")
+        self.reconnect_btn.setObjectName("Primary")
+        self.reconnect_btn.clicked.connect(self.reconnect_async)
+        self.reconnect_finished.connect(self.on_reconnect_finished)
+        buttons.addWidget(self.reconnect_btn)
         buttons.addStretch(1)
         root.addLayout(buttons)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(1000)
+        self.refresh()
+
+    def reconnect_async(self):
+        if not self.reconnect_btn.isEnabled():
+            return
+        self.reconnect_btn.setEnabled(False)
+        self.reconnect_btn.setText("Подключение…")
+
+        def worker():
+            try:
+                self.app.network.reconnect()
+            finally:
+                self.reconnect_finished.emit()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def on_reconnect_finished(self):
+        self.reconnect_btn.setEnabled(True)
+        self.reconnect_btn.setText("Переподключить")
         self.refresh()
 
     def _data(self):

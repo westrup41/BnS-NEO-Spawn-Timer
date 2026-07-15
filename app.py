@@ -522,12 +522,11 @@ class MainWindow(QMainWindow):
         if last_sent and (now - last_sent).total_seconds() < 30:
             return False
 
-        self.discord_alert_last_sent[channel_name] = now
-
         packet = self.network.send_spawn(channel_name)
         if packet is None:
             return False
 
+        self.discord_alert_last_sent[channel_name] = now
         self._accept_spawn(packet, apply_notification=True)
         self._send_webhooks_async(channel_name)
 

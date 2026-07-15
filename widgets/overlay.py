@@ -1,10 +1,16 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QFrame, QLabel, QHBoxLayout
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QFrame,
+    QLabel,
+    QHBoxLayout,
+    QGraphicsOpacityEffect,
+)
+from PySide6.QtCore import Qt
 from settings import AppSettings
 from utils import s
 from config import COLORS, BLOCKS
 from styles import Style
-from services.windows import set_windows_click_through
 
 class OverlayWindow(QWidget):
     def __init__(self, settings: AppSettings):
@@ -19,10 +25,23 @@ class OverlayWindow(QWidget):
         self.event_timer_label = None
         self.event_day_label = None
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setWindowOpacity(self.settings.overlay_alpha)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.move(self.settings.overlay_pos_x, self.settings.overlay_pos_y)
         self.build()
         self.apply_lock()
+
+    def _apply_visual_opacity(self, widget: QWidget) -> QWidget:
+        """Fade the rendered overlay content without changing native window opacity.
+
+        QWidget.setWindowOpacity() uses the Win32 layered-window opacity path.
+        Combining it with a per-pixel translucent Qt window can make capture tools
+        handle the same window through two different composition mechanisms.  A
+        graphics effect keeps all alpha composition inside Qt's paint pass.
+        """
+        effect = QGraphicsOpacityEffect(widget)
+        effect.setOpacity(max(0.0, min(1.0, float(self.settings.overlay_alpha))))
+        widget.setGraphicsEffect(effect)
+        return widget
 
     def selected_blocks(self):
         result = []
@@ -112,7 +131,7 @@ class OverlayWindow(QWidget):
 
             layout.addWidget(row_frame)
             self.timer_labels[name] = {"timer": timer, "interval": interval, "frame": row_frame}
-        return bubble
+        return self._apply_visual_opacity(bubble)
 
     def make_world_bubble(self):
         sc = self.settings.overlay_scale
@@ -141,7 +160,7 @@ class OverlayWindow(QWidget):
         self.world_timer_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.world_name_label)
         layout.addWidget(self.world_timer_label)
-        return bubble
+        return self._apply_visual_opacity(bubble)
 
     def make_event_bubble(self):
         sc = self.settings.overlay_scale
@@ -177,10 +196,9 @@ class OverlayWindow(QWidget):
         timer_row.addWidget(self.event_timer_label)
         timer_row.addStretch(1)
         layout.addLayout(timer_row)
-        return bubble
+        return self._apply_visual_opacity(bubble)
 
     def apply_settings(self):
-        self.setWindowOpacity(self.settings.overlay_alpha)
         self.build()
         self.apply_lock()
 
@@ -188,10 +206,13 @@ class OverlayWindow(QWidget):
         flags = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if self.settings.overlay_locked and hasattr(Qt, "WindowTransparentForInput"):
             flags |= Qt.WindowTransparentForInput
+        if self.settings.overlay_locked and hasattr(Qt, "WindowDoesNotAcceptFocus"):
+            flags |= Qt.WindowDoesNotAcceptFocus
+        self.setAttribute(Qt.WA_ShowWithoutActivating, self.settings.overlay_locked)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, self.settings.overlay_locked)
         self.setWindowFlags(flags)
         if self.settings.overlay_enabled:
             self.show()
-            QTimer.singleShot(80, lambda: set_windows_click_through(int(self.winId()), self.settings.overlay_locked))
 
     def update_timers(self, data: dict):
         for name, labels in self.timer_labels.items():

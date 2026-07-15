@@ -6,6 +6,7 @@ import sys
 import tempfile
 import urllib.request
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from config import APP_VERSION, GITHUB_URL
 
@@ -56,8 +57,8 @@ class UpdateManager:
             data = json.loads(response.read().decode())
 
         assets = data.get("assets") if isinstance(data.get("assets"), list) else []
-        exe = next((item for item in assets if str(item.get("name", "")).lower().endswith(".exe")), {})
-        checksum = next((item for item in assets if str(item.get("name", "")).lower().endswith(".sha256")), {})
+        exe = next((item for item in assets if str(item.get("name", "")).casefold() == "bns-neo-spawn-timer.exe"), {})
+        checksum = next((item for item in assets if str(item.get("name", "")).casefold() == "bns-neo-spawn-timer.exe.sha256"), {})
         return {
             "version": data.get("tag_name", ""),
             "url": data.get("html_url", ""),
@@ -80,7 +81,7 @@ class UpdateManager:
         try:
             return normalize(latest) > normalize(APP_VERSION)
         except Exception:
-            return latest != APP_VERSION
+            return False
         
     def check(self, force=False):
         return self.check_with_status(force=force).get("update")
@@ -89,9 +90,6 @@ class UpdateManager:
         if not force and not self.should_check():
             return {"status": "skipped", "update": None}
 
-        self.settings.last_update_check = datetime.now().isoformat()
-        self.settings.save()
-
         try:
             latest = self.fetch_latest()
         except Exception as exc:
@@ -99,6 +97,9 @@ class UpdateManager:
 
         if not latest:
             return {"status": "error", "update": None}
+
+        self.settings.last_update_check = datetime.now().isoformat()
+        self.settings.save()
 
         if not self.versions_different(latest["version"]):
             return {"status": "current", "update": None, "latest": latest.get("version", "")}
@@ -128,7 +129,10 @@ class UpdateManager:
         from paths import APP_DIR
         update_dir = APP_DIR / "updates"
         update_dir.mkdir(parents=True, exist_ok=True)
-        target = update_dir / str(update.get("exe_name") or "BnS-NEO-Spawn-Timer.exe")
+        target_name = Path(str(update.get("exe_name") or "BnS-NEO-Spawn-Timer.exe")).name
+        if target_name.casefold() != "bns-neo-spawn-timer.exe":
+            raise RuntimeError("Неверное имя exe-файла обновления")
+        target = update_dir / target_name
         target.write_bytes(payload)
         return target
 

@@ -47,6 +47,8 @@ class MqttConnection:
         self.reconnect_count = 0
 
     def start(self):
+        if self.thread and self.thread.is_alive():
+            return
         self.stop_event.clear()
         self.thread = threading.Thread(
             target=self._run, name=f"mqtt-{self.host}", daemon=True
@@ -75,7 +77,7 @@ class MqttConnection:
                 self._connect()
                 retry_delay = 1
                 self._io_loop()
-            except (OSError, ValueError, ConnectionError) as exc:
+            except Exception as exc:
                 self.last_error = str(exc)
                 self.reconnect_count += 1
             finally:
@@ -183,7 +185,10 @@ class MqttConnection:
         connected = bool(connected)
         if connected != self.connected:
             self.connected = connected
-            self.on_status(self, connected)
+            try:
+                self.on_status(self, connected)
+            except Exception:
+                pass
 
     def _close_socket(self):
         sock, self.socket = self.socket, None
@@ -210,11 +215,11 @@ class MqttRelayPool:
             connection.stop()
 
     def publish(self, payload: bytes, retain: bool = False):
-        online = self.online_count() > 0
         accepted = False
         for connection in self.connections:
-            accepted = connection.publish(payload, retain=retain) or accepted
-        return online and accepted
+            if connection.connected:
+                accepted = connection.publish(payload, retain=retain) or accepted
+        return accepted
 
     def online_count(self):
         return sum(connection.connected for connection in self.connections)

@@ -167,7 +167,7 @@ class SettingsDialog(QDialog):
         self.room_code.setMaxLength(64)
         self.room_code.setEchoMode(QLineEdit.Normal)
         self.room_code.setMaximumWidth(s(380, sc))
-        self.room_code.setPlaceholderText("Введите общий код клана")
+        self.room_code.setPlaceholderText("Код приватной комнаты")
         self.room_code.setText(self.settings.online_room_code)
         self.room_code.textChanged.connect(lambda: self.copy_room_btn.setEnabled(
             self.room_private and bool(self.room_code.text().strip())
