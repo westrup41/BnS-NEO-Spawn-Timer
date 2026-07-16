@@ -93,6 +93,7 @@ class Style:
         arrow_path = combo_arrow_asset()
         css = f"""
         QWidget {{ background: transparent; color: {COLORS['text_main']}; font-family: "Segoe UI"; font-size: {s(11, scale)}px; }}
+        QDialog#ChatTrackerDialog {{ background: {COLORS['bg_main']}; border: 1px solid {COLORS['border']}; border-radius: {s(14, scale)}px; }}
         QDialog#StandaloneDialog {{ background: {COLORS['bg_main']}; }}
         QFrame#Shell {{ background: {COLORS['bg_main']}; border: 1px solid #26292F; border-radius: {s(14, scale)}px; }}
         QFrame#TopBar {{ background: transparent; border: none; }}
@@ -101,6 +102,7 @@ class Style:
         QLabel#AppTitle {{ color: #FFFFFF; font-size: {s(14, scale)}px; font-weight: 850; }}
         QLabel#AppSubtitle {{ color: {COLORS['text_muted']}; font-size: {s(10, scale)}px; font-weight: 600; }}
         QFrame#Card {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; border-radius: {s(14, scale)}px; }}
+        QFrame#Card[chat_alert="true"] {{ background: #3B2226; border: 3px solid {COLORS['danger']}; }}
         QFrame#AccentLine {{ background: {COLORS['accent']}; border-radius: {s(2, scale)}px; }}
         QLabel#SectionTitle {{ color: #FFFFFF; font-size: {s(15, scale)}px; font-weight: 850; }}
         QLabel#FormLabel {{ color: {COLORS['text_muted']}; font-size: {s(10, scale)}px; font-weight: 700; }}
@@ -165,6 +167,9 @@ class Style:
         QPushButton#RoomSegment[active="false"] {{ background: transparent; opacity: 0.65; }}
         QPushButton#RoomSegment:hover {{ border-color: {COLORS['border']}; }}
         QPushButton#ChatButton {{ background: {COLORS['accent']}; border: 1px solid #7780FF; border-radius: {s(24, scale)}px; padding: 0; }}
+        QPushButton#TrackerButton {{ background: {COLORS['bg_input']}; color: #FFFFFF; border: 1px solid {COLORS['accent']}; border-radius: {s(13, scale)}px; padding: 0; font-family: "Segoe UI Emoji"; font-size: {s(15, scale)}px; font-weight: 900; }}
+        QPushButton#TrackerButton:hover {{ background: {COLORS['accent']}; }}
+        QLabel#TrackerPreview {{ background: #111318; border: 1px solid {COLORS['border']}; border-radius: {s(10, scale)}px; color: {COLORS['text_muted']}; }}
         QPushButton#ChatButton:hover {{ background: {COLORS['accent_hover']}; }}
         QPushButton#ChatButton:disabled {{ background: #3D414A; border-color: #555A64; }}
         QPushButton#ChatButton[missing_nickname="true"] {{ background: #3D414A; border-color: #555A64; }}
@@ -190,6 +195,7 @@ class Style:
         css = f"""
         QWidget {{ background: transparent; color: {COLORS['text_main']}; font-family: "Segoe UI"; }}
         QFrame#OverlayBubble {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; border-radius: {s(18, scale)}px; }}
+        QFrame#OverlayBubble[chat_alert="true"] {{ background: #3B2226; border: 3px solid {COLORS['danger']}; }}
         QFrame#OverlayTimerRow {{ background: transparent; border: 1px solid transparent; border-radius: {s(9, scale)}px; }}
         QFrame#OverlayTimerRow[spawn_alert="true"] {{ background: rgba(218,55,60,0.24); border: 2px solid {COLORS['danger']}; }}
         QLabel#OverlayTitle {{ color: {COLORS['accent']}; font-size: {s(13, scale)}px; font-weight: 900; }}

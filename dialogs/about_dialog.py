@@ -18,7 +18,7 @@ class AboutDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setModal(False)
         self.setStyleSheet(Style.main(parent.settings.app_scale))
-        self.setFixedSize(s(450, parent.settings.app_scale), s(390, parent.settings.app_scale))
+        self.setFixedSize(s(450, parent.settings.app_scale), s(330, parent.settings.app_scale))
         self.build()
 
     def build(self):
@@ -68,22 +68,7 @@ class AboutDialog(QDialog):
         contacts.addStretch(1)
         layout.addLayout(contacts)
 
-        self.update_status = QLabel("")
-        self.update_status.setObjectName("FormLabel")
-        self.update_status.setAlignment(Qt.AlignCenter)
-        self.update_status.setWordWrap(True)
-        self.update_status.setMinimumHeight(s(38, sc))
-        layout.addWidget(self.update_status)
         layout.addStretch(1)
-
-        buttons = QHBoxLayout()
-        self.check_btn = QPushButton("Проверить обновления")
-        self.check_btn.setObjectName("Primary")
-        self.check_btn.clicked.connect(self.check_updates)
-        buttons.addStretch(1)
-        buttons.addWidget(self.check_btn)
-        buttons.addStretch(1)
-        layout.addLayout(buttons)
 
         self.discord_popover = QFrame(self)
         self.discord_popover.setObjectName("ContactPopover")
@@ -115,20 +100,6 @@ class AboutDialog(QDialog):
         self.discord_popover.show()
         self.discord_popover.raise_()
         QTimer.singleShot(5000, self.discord_popover.hide)
-
-    def check_updates(self):
-        self.check_btn.setEnabled(False)
-        self.update_status.setStyleSheet("")
-        self.update_status.setText("Проверяю обновления…")
-        self.parent_window.check_updates_now()
-
-    def set_update_status(self, text: str, is_error: bool = False):
-        self.check_btn.setEnabled(True)
-        self.update_status.setText(text)
-        if is_error:
-            self.update_status.setStyleSheet("color: #DA373C;")
-        else:
-            self.update_status.setStyleSheet("")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

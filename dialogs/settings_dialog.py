@@ -287,34 +287,6 @@ class SettingsDialog(QDialog):
         ui_layout.addWidget(self.app_scale_slider)
         content_layout.addWidget(ui_group)
         
-        updates_group = QFrame()
-        updates_group.setObjectName("SettingsGroup")
-        updates_layout = QVBoxLayout(updates_group)
-        updates_layout.setContentsMargins(s(14, sc), s(12, sc), s(14, sc), s(12, sc))
-        updates_layout.setSpacing(s(8, sc))
-
-        updates_title = QLabel("Обновления")
-        updates_title.setObjectName("GroupTitle")
-        updates_layout.addWidget(updates_title)
-
-        interval_label = QLabel("Проверять обновления")
-        interval_label.setObjectName("FormLabel")
-        updates_layout.addWidget(interval_label)
-
-        self.update_interval = QComboBox()
-        self.update_interval.setMaximumWidth(s(230, sc))
-        self.update_interval.addItem("Никогда", "never")
-        self.update_interval.addItem("Раз в неделю", "week")
-        self.update_interval.addItem("Раз в месяц", "month")
-
-        index = self.update_interval.findData(self.settings.update_check_interval)
-        if index >= 0:
-            self.update_interval.setCurrentIndex(index)
-
-        updates_layout.addWidget(self.update_interval)
-
-        content_layout.addWidget(updates_group)
-
         backup_group = QFrame()
         backup_group.setObjectName("SettingsGroup")
         backup_layout = QVBoxLayout(backup_group)
@@ -390,6 +362,27 @@ class SettingsDialog(QDialog):
         overlay_layout.addWidget(self.overlay_scale_label)
         overlay_layout.addWidget(self.overlay_scale_slider)
         content_layout.addWidget(overlay_group)
+
+        beta_group = QFrame()
+        beta_group.setObjectName("SettingsGroup")
+        beta_layout = QVBoxLayout(beta_group)
+        beta_layout.setContentsMargins(s(14, sc), s(12, sc), s(14, sc), s(12, sc))
+        beta_layout.setSpacing(s(7, sc))
+        beta_title = QLabel("Beta")
+        beta_title.setObjectName("GroupTitle")
+        beta_layout.addWidget(beta_title)
+        self.experimental_enabled = QCheckBox("Экспериментальные функции")
+        self.experimental_enabled.setChecked(self.settings.experimental_enabled)
+        self.chat_tracker_enabled = QCheckBox("Трекер чата")
+        self.chat_tracker_enabled.setChecked(self.settings.chat_tracker_enabled)
+        self.chat_alerts_enabled = QCheckBox("Аллерты из чата")
+        self.chat_alerts_enabled.setChecked(self.settings.chat_alerts_enabled)
+        beta_layout.addWidget(self.experimental_enabled)
+        beta_layout.addLayout(self._indented_checkbox(self.chat_tracker_enabled, sc))
+        beta_layout.addLayout(self._indented_checkbox(self.chat_alerts_enabled, sc))
+        self.experimental_enabled.toggled.connect(self.on_experimental_toggled)
+        self.on_experimental_toggled(self.experimental_enabled.isChecked())
+        content_layout.addWidget(beta_group)
         content_layout.addStretch(1)
         scroll.setWidget(scroll_widget)
         layout.addWidget(scroll, 1)
@@ -509,6 +502,13 @@ class SettingsDialog(QDialog):
         if not checked:
             self.block2.setChecked(False)
 
+    def on_experimental_toggled(self, checked: bool):
+        self.chat_tracker_enabled.setEnabled(checked)
+        self.chat_alerts_enabled.setEnabled(checked)
+        if not checked:
+            self.chat_tracker_enabled.setChecked(False)
+            self.chat_alerts_enabled.setChecked(False)
+
     def on_overlay_block_toggled(self, checked: bool):
         if checked and not self.overlay.isChecked():
             self.overlay.setChecked(True)
@@ -558,7 +558,9 @@ class SettingsDialog(QDialog):
         self.settings.event_enabled = self.event_enabled.isChecked()
         self.settings.ui_theme = self.ui_theme.currentData()
         self.settings.theme_choice_version = 1
-        self.settings.update_check_interval = self.update_interval.currentData()
+        self.settings.experimental_enabled = self.experimental_enabled.isChecked()
+        self.settings.chat_tracker_enabled = self.chat_tracker_enabled.isChecked() and self.settings.experimental_enabled
+        self.settings.chat_alerts_enabled = self.chat_alerts_enabled.isChecked() and self.settings.experimental_enabled
         block1_enabled = self.block1.isChecked()
         block2_enabled = self.block2.isChecked() and self.settings.event_enabled
         block3_enabled = self.block3.isChecked()

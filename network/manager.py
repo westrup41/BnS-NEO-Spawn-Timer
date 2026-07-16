@@ -10,7 +10,7 @@ from PySide6.QtCore import QObject, Signal
 
 from services.identity import UserIdentity
 from .mqtt import MqttRelayPool
-from .packet import create_packet, spawn_packet, chat_packet, reaction_packet
+from .packet import create_packet, spawn_packet, chat_packet, reaction_packet, chat_alert_packet
 from .protocol import PROTOCOL_VERSION
 from services.admin import verify_admin_packet
 from services.admin import sign_admin_packet
@@ -39,6 +39,7 @@ class NetworkManager(QObject):
     online_changed = Signal(bool)
     history_received = Signal(list)
     admin_received = Signal(dict)
+    chat_alert_received = Signal(dict)
 
     def __init__(self, app):
         super().__init__()
@@ -97,6 +98,14 @@ class NetworkManager(QObject):
             return None
         packet = self.identity.sign(reaction_packet(
             message_id, self.identity.user_id, value
+        ))
+        return packet if self.broadcast(packet) else None
+
+    def send_chat_alert(self, trigger: str, text: str):
+        if not self.internet_available:
+            return None
+        packet = self.identity.sign(chat_alert_packet(
+            trigger, text, self.app.get_nickname(), self.identity.user_id
         ))
         return packet if self.broadcast(packet) else None
 
@@ -200,7 +209,7 @@ class NetworkManager(QObject):
             if verify_admin_packet(packet):
                 self.admin_received.emit(packet)
             return
-        if packet_type not in ("hello", "spawn", "chat", "reaction", "sync"):
+        if packet_type not in ("hello", "spawn", "chat", "reaction", "chat_alert", "sync"):
             return
         if packet.get("protocol") != PROTOCOL_VERSION or not UserIdentity.verify(packet):
             return
@@ -217,6 +226,9 @@ class NetworkManager(QObject):
         elif packet_type == "reaction":
             if packet.get("voter_id") == packet.get("signer_id"):
                 self.reaction_received.emit(packet)
+        elif packet_type == "chat_alert":
+            if packet.get("author_id") == packet.get("signer_id") and packet.get("source") == "ocr":
+                self.chat_alert_received.emit(packet)
         elif packet_type == "sync":
             messages = packet.get("messages", [])
             if isinstance(messages, list):

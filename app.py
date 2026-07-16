@@ -1,5 +1,4 @@
 import threading
-import webbrowser
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton, QMenu, QSystemTrayIcon
 from PySide6.QtCore import Qt, QTimer, Signal, QSize
@@ -13,7 +12,6 @@ from styles import Style
 from resources import app_icon, make_feedback_icon, make_info_icon, is_admin_build
 from services.audio import stop_alert_sound, play_alert
 from services.discord import post_discord_webhook
-from services.updater import UpdateManager
 from services.logger import log
 from network.manager import NetworkManager
 from data.chat_history import ChatHistory
@@ -23,22 +21,24 @@ from widgets.world_boss import WorldBossBlock
 from widgets.event_block import EventBlock
 from widgets.motion import ButtonMotion, stagger_cards
 from widgets.overlay import OverlayWindow
+from widgets.tracker_button import TrackerButton
 from dialogs.feedback_dialog import FeedbackDialog
 from dialogs.settings_dialog import SettingsDialog
 from dialogs.about_dialog import AboutDialog
 from dialogs.message_dialog import MessageDialog
 from dialogs.chat_dialog import ChatDialog
 from dialogs.nickname_dialog import NicknameDialog
+from dialogs.chat_tracker_dialog import ChatTrackerDialog
 from services.admin import verify_admin_packet
+from services.chat_ocr import clean as clean_chat_alert
+from paths import CHAT_LOG_PATH
 
 class MainWindow(QMainWindow):
-    update_available_signal = Signal(object)
-    update_check_result_signal = Signal(object)
-    update_download_result_signal = Signal(object)
-
     def __init__(self):
         super().__init__()
         self.settings = AppSettings.load()
+        try: CHAT_LOG_PATH.write_text("[]", encoding="utf-8")
+        except OSError: pass
         Style.set_theme(self.settings.ui_theme)
         self.admin_build = is_admin_build()
         self.button_motion = ButtonMotion(self)
@@ -50,6 +50,10 @@ class MainWindow(QMainWindow):
         self.feedback_dialog = None
         self.about_dialog = None
         self.chat_dialog = None
+        self.chat_tracker_dialog = None
+        self.chat_alert_until = None
+        self.chat_alert_source = None
+        self.chat_alert_recent = {}
         initial_room = self.settings.online_room_code if self.settings.online_room_private else ""
         self.chat_history = ChatHistory(room_code=initial_room)
         self.chat_unread = False
@@ -80,15 +84,8 @@ class MainWindow(QMainWindow):
         self.network.online_changed.connect(self.on_online_changed)
         self.network.history_received.connect(self.on_network_history)
         self.network.admin_received.connect(self.on_admin_command)
-        self.update_available_signal.connect(self.show_update_dialog)
-        self.update_check_result_signal.connect(self.show_update_check_result)
-        self.update_download_result_signal.connect(self.on_update_downloaded)
-
-        self.updater = UpdateManager(self.settings)
+        self.network.chat_alert_received.connect(self.on_network_chat_alert)
         log(f"Запуск программы {APP_VERSION}")
-
-        if not self.admin_build:
-            QTimer.singleShot(1000, self.check_updates)
 
         suffix = " Admin" if self.admin_build else ""
         self.setWindowTitle(f"B&S NEO Spawn Timer {APP_VERSION}{suffix}")
@@ -194,6 +191,7 @@ class MainWindow(QMainWindow):
 
         for block in BLOCKS:
             timer_block = TimerBlock(self, block, settings_button=False)
+            if block is BLOCKS[0]: self.tree_block = timer_block
             layout.addWidget(timer_block)
             motion_cards.append(timer_block)
 
@@ -225,6 +223,14 @@ class MainWindow(QMainWindow):
         self.chat_badge.move(s(34, sc), s(3, sc))
         self.update_chat_button()
 
+        self.tracker_btn = TrackerButton(self, self.shell)
+        self.tracker_btn.setFixedSize(s(72, sc), s(54, sc))
+        self.tracker_btn.setToolTip("Трекер игрового чата — BETA")
+        self.tracker_btn.clicked.connect(self.open_chat_tracker)
+        self.tracker_btn.setVisible(self.settings.experimental_enabled and self.settings.chat_tracker_enabled)
+        self.tracker_btn.raise_()
+        QTimer.singleShot(0, self.position_tracker_button)
+
         if self.settings.ui_theme != "classic":
             self.button_motion.install(self.shell)
             QTimer.singleShot(20, lambda cards=motion_cards: stagger_cards(cards, self))
@@ -249,6 +255,13 @@ class MainWindow(QMainWindow):
         self.tick()
         self.refresh_discord_buttons()
         self.update_chat_button()
+        if hasattr(self, 'tracker_btn'): QTimer.singleShot(0, self.position_tracker_button)
+
+    def position_tracker_button(self):
+        if not hasattr(self, 'tracker_btn'): return
+        x=s(18,self.settings.app_scale); y=max(0,self.shell.height()-self.tracker_btn.height()-s(16,self.settings.app_scale))
+        self.tracker_btn.move(max(0,min(x,self.shell.width()-self.tracker_btn.width())),max(0,min(y,self.shell.height()-self.tracker_btn.height())))
+        self.tracker_btn.raise_()
 
     def restore_active_timers(self):
         now = datetime.now()
@@ -410,107 +423,6 @@ class MainWindow(QMainWindow):
             self.overlay_window.update_world(self.world_name, self.world_timer, self.world_status)
             self.overlay_window.update_event(self.event_name, self.event_timer, self.event_status, self.event_days)
         
-    def show_update_dialog(self, update: dict):
-        version = update.get("version", "Неизвестно")
-        body = update.get("body", "").strip()
-        url = update.get("url", "")
-
-        if not body:
-            body = "Описание изменений отсутствует."
-
-        message = (
-            f"Доступна новая версия программы.\n\n"
-            f"Текущая версия: {APP_VERSION}\n"
-            f"Новая версия: {version}"
-        )
-
-        dialog = MessageDialog(
-            self,
-            "Доступно обновление",
-            message,
-            body[:1200],
-            ok_text="Открыть релиз",
-            cancel_text="Позже",
-        )
-
-        if dialog.exec_result():
-            if update.get("exe_url"):
-                threading.Thread(target=self._download_update_worker, args=(update,), daemon=True).start()
-            elif url:
-                webbrowser.open(url)
-
-    def _download_update_worker(self, update):
-        try:
-            path = self.updater.download_verified(update)
-            self.update_download_result_signal.emit({"ok": True, "path": str(path)})
-        except Exception as exc:
-            self.update_download_result_signal.emit({"ok": False, "error": str(exc), "url": update.get("url", "")})
-
-    def on_update_downloaded(self, result):
-        if not result.get("ok"):
-            if MessageDialog(
-                self, "Не удалось установить обновление",
-                str(result.get("error") or "Неизвестная ошибка"),
-                ok_text="Открыть релиз", cancel_text="Закрыть",
-            ).exec_result() and result.get("url"):
-                webbrowser.open(result["url"])
-            return
-        if not MessageDialog(
-            self, "Обновление готово",
-            "Файл проверен по SHA-256. Перезапустить программу и установить обновление?",
-            ok_text="Перезапустить", cancel_text="Позже",
-        ).exec_result():
-            return
-        try:
-            self.updater.install_and_restart(result["path"])
-            QApplication.quit()
-        except Exception as exc:
-            MessageDialog(self, "Ошибка обновления", str(exc)).exec()
-            
-    def check_updates_now(self):
-        threading.Thread(
-            target=lambda: self._check_updates_worker(force=True),
-            daemon=True
-        ).start()
-        
-    def check_updates(self):
-        threading.Thread(
-            target=self._check_updates_worker,
-            daemon=True
-        ).start()
-
-    def _check_updates_worker(self, force=False):
-        log("Проверка обновлений...")
-
-        result = self.updater.check_with_status(force=force)
-        update = result.get("update")
-
-        if update:
-            log(f"Найдена новая версия {update['version']}")
-            self.update_available_signal.emit(update)
-            if force:
-                self.update_check_result_signal.emit({
-                    "status": "update",
-                    "update": update,
-                })
-        else:
-            log("Обновлений нет")
-            if force:
-                self.update_check_result_signal.emit(result)
-
-    def show_update_check_result(self, result: dict):
-        status = result.get("status")
-        if status == "current":
-            text = f"У вас установлена актуальная версия {APP_VERSION}."
-        elif status == "update":
-            text = f"Доступна новая версия {result.get('update', {}).get('version', '')}."
-        else:
-            text = "Не удалось проверить обновления. Проверьте подключение к интернету."
-        if self.about_dialog is not None:
-            self.about_dialog.set_update_status(text, status == "error")
-        else:
-            MessageDialog(self, "Проверка обновлений", text).exec()
-
     def announce_spawn(self, channel_name: str):
         now = datetime.now()
 
@@ -635,10 +547,19 @@ class MainWindow(QMainWindow):
         self.tick()
         
     def update_spawn_effect(self):
-        if not self.spawn_effects:
+        if not self.spawn_effects and not self.chat_alert_until:
             return
 
         self.spawn_blink_state = not self.spawn_blink_state
+
+        if self.chat_alert_until:
+            active=datetime.now()<self.chat_alert_until
+            blink=active and self.spawn_blink_state
+            if hasattr(self,'tree_block'): self.tree_block.set_chat_alert(blink)
+            if self.overlay_window is not None: self.overlay_window.set_chat_alert(blink)
+            if not active:
+                self.chat_alert_until=None
+                self.chat_alert_source=None
 
         for channel in list(self.spawn_effects.keys()):
 
@@ -765,6 +686,43 @@ class MainWindow(QMainWindow):
         self.chat_dialog.show()
         self.chat_dialog.raise_()
         self.chat_dialog.activateWindow()
+
+    def open_chat_tracker(self):
+        if not (self.settings.experimental_enabled and self.settings.chat_tracker_enabled): return
+        if self.chat_tracker_dialog is None: self.chat_tracker_dialog=ChatTrackerDialog(self)
+        self.chat_tracker_dialog.show();self.chat_tracker_dialog.raise_();self.chat_tracker_dialog.activateWindow()
+
+    def on_local_chat_detection(self, trigger: str, text: str):
+        if not self.start_chat_alert_effect('local'): return False
+        if self.settings.experimental_enabled and self.settings.chat_alerts_enabled:
+            self.network.send_chat_alert(trigger,text)
+        return True
+
+    def on_network_chat_alert(self, packet: dict):
+        if not (self.settings.experimental_enabled and self.settings.chat_alerts_enabled): return
+        sender=str(packet.get('author_id') or '')
+        if sender in self.settings.admin_banned_user_ids or sender in self.settings.blocked_alert_user_ids:return
+        key=(sender,clean_chat_alert(packet.get('trigger','')));now=datetime.now();last=self.chat_alert_recent.get(key)
+        if last and (now-last).total_seconds()<30:return
+        self.chat_alert_recent[key]=now
+        if not self.start_chat_alert_effect('remote'): return
+        play_alert(self.settings.incoming_alert_sound_enabled,self.settings.custom_sound_path,self.settings.sound_volume)
+
+    def start_chat_alert_effect(self, source: str):
+        if self.chat_alert_until and datetime.now()<self.chat_alert_until:
+            return False
+        self.chat_alert_until=datetime.now()+timedelta(seconds=SPAWN_EFFECT_SECONDS)
+        self.chat_alert_source=source
+        return True
+
+    def cancel_local_chat_alert_effect(self):
+        if self.chat_alert_source != 'local':
+            return False
+        self.chat_alert_until=None
+        self.chat_alert_source=None
+        if hasattr(self,'tree_block'): self.tree_block.set_chat_alert(False)
+        if self.overlay_window is not None: self.overlay_window.set_chat_alert(False)
+        return True
 
     def on_online_changed(self, available: bool):
         self.internet_available = bool(available)
@@ -897,6 +855,7 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def quit_app(self):
+        if self.chat_tracker_dialog is not None:self.chat_tracker_dialog.close()
         self.network.stop()
         stop_alert_sound()
         log("Выход из программы")

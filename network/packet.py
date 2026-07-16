@@ -6,6 +6,7 @@ from .protocol import (
     TYPE_CHAT,
     TYPE_SPAWN,
     TYPE_REACTION,
+    TYPE_CHAT_ALERT,
 )
 
 
@@ -54,6 +55,12 @@ def reaction_packet(message_id: str, voter_id: str, value: int):
         message_id=message_id,
         voter_id=voter_id,
         value=0 if int(value) == 0 else (1 if int(value) > 0 else -1),
+    )
+
+def chat_alert_packet(trigger: str, text: str, nickname: str, author_id: str):
+    return create_packet(
+        TYPE_CHAT_ALERT, trigger=str(trigger)[:80], text=str(text)[:300],
+        nickname=str(nickname)[:16], author_id=str(author_id), source="ocr",
     )
 
 

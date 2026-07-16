@@ -14,6 +14,7 @@ class TimerBlock(QFrame):
         self.block = block
         self.rows = {}
         self.setObjectName("Card")
+        self.setProperty("chat_alert", "false")
         sc = app.settings.app_scale
         main = QVBoxLayout(self)
         main.setContentsMargins(s(16, sc), s(16, sc), s(16, sc), s(16, sc))
@@ -69,6 +70,10 @@ class TimerBlock(QFrame):
             self.rows[name] = row
             app.rows[name] = row
             main.addWidget(row)
+
+    def set_chat_alert(self, active: bool):
+        self.setProperty("chat_alert", "true" if active else "false")
+        self.style().unpolish(self); self.style().polish(self); self.update()
 
     def normalize_time_input(self, text):
         digits = "".join(ch for ch in text if ch.isdigit())[:4]

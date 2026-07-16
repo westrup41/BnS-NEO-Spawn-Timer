@@ -12,6 +12,20 @@ _SETTINGS_SAVE_LOCK = threading.RLock()
 
 @dataclass
 class AppSettings:
+    experimental_enabled: bool = False
+    chat_tracker_enabled: bool = False
+    chat_alerts_enabled: bool = False
+    chat_region: dict = field(default_factory=dict)
+    chat_triggers: list = field(default_factory=lambda: [
+        "монарх", "м1", "м2", "м3", "м1к", "м2к", "м3к",
+        "m1k", "m2k", "m3k", "m1 k", "m2 k", "m3 k", "дерево",
+    ])
+    chat_similarity: int = 82
+    chat_matching_version: int = 2
+    chat_ocr_confidence: int = 45
+    chat_contrast: bool = False
+    tracker_button_x: int = -1
+    tracker_button_y: int = -1
     sound_enabled: bool = True
     incoming_alert_sound_enabled: bool = True
     custom_sound_path: str = ""
@@ -19,8 +33,6 @@ class AppSettings:
     discord_nickname: str = ""
     discord_message: str = "@everyone 🚨 Императорское древо"
     discord_webhooks: list = field(default_factory=lambda: [""] * 10)
-    update_check_interval: str = "week"
-    last_update_check: str = ""
     overlay_enabled: bool = False
     overlay_locked: bool = False
     overlay_block1: bool = False
@@ -87,6 +99,26 @@ class AppSettings:
         elif str(settings.ui_theme) not in {"classic", "midnight", "starlight"}:
             settings.ui_theme = "classic"
         settings.overlay_scale = max(0.70, min(1.60, float(settings.overlay_scale)))
+        settings.experimental_enabled = bool(settings.experimental_enabled)
+        settings.chat_tracker_enabled = bool(settings.chat_tracker_enabled and settings.experimental_enabled)
+        settings.chat_alerts_enabled = bool(settings.chat_alerts_enabled and settings.experimental_enabled)
+        if not isinstance(settings.chat_region, dict): settings.chat_region = {}
+        if not isinstance(settings.chat_triggers, list): settings.chat_triggers = []
+        settings.chat_triggers = list(dict.fromkeys(
+            str(value).strip()[:80] for value in settings.chat_triggers if str(value).strip()
+        ))[:100]
+        try: settings.chat_similarity = max(50, min(100, int(settings.chat_similarity)))
+        except Exception: settings.chat_similarity = 82
+        try: settings.chat_matching_version = int(settings.chat_matching_version)
+        except Exception: settings.chat_matching_version = 0
+        if settings.chat_matching_version < 2:
+            if settings.chat_similarity == 76:
+                settings.chat_similarity = 82
+            settings.chat_matching_version = 2
+            theme_migrated = True
+        try: settings.chat_ocr_confidence = max(10, min(95, int(settings.chat_ocr_confidence)))
+        except Exception: settings.chat_ocr_confidence = 45
+        settings.chat_contrast = bool(settings.chat_contrast)
         if not isinstance(settings.active_timers, dict):
             settings.active_timers = {}
         if not isinstance(settings.discord_webhooks, list):
@@ -196,7 +228,7 @@ class AppSettings:
 
     def export_public(self):
         """Portable user configuration; identity keys and transient state are excluded."""
-        excluded = {"last_update_check", "active_timers", "online_room_private", "online_room_code", "admin_chat_epoch",
+        excluded = {"active_timers", "online_room_private", "online_room_code", "admin_chat_epoch",
                     "admin_deleted_message_ids", "admin_banned_user_ids", "admin_commands"}
         return {
             "format": "bns-neo-settings",
@@ -213,7 +245,7 @@ class AppSettings:
         values = payload.get("settings")
         if not isinstance(values, dict):
             raise ValueError("Файл настроек повреждён")
-        protected = {"last_update_check", "active_timers", "online_room_private", "online_room_code", "admin_chat_epoch",
+        protected = {"active_timers", "online_room_private", "online_room_code", "admin_chat_epoch",
                      "admin_deleted_message_ids", "admin_banned_user_ids", "admin_commands"}
         for key in self.__dataclass_fields__:
             if key in values and key not in protected:

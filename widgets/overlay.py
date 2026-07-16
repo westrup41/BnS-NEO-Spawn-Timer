@@ -24,6 +24,7 @@ class OverlayWindow(QWidget):
         self.event_name_label = None
         self.event_timer_label = None
         self.event_day_label = None
+        self.timer_bubbles = []
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
         self.move(self.settings.overlay_pos_x, self.settings.overlay_pos_y)
@@ -65,6 +66,7 @@ class OverlayWindow(QWidget):
         self.setStyleSheet(Style.overlay(self.settings.overlay_scale))
         self.clear_layout()
         self.timer_labels.clear()
+        self.timer_bubbles.clear()
         self.world_name_label = None
         self.world_timer_label = None
         self.event_name_label = None
@@ -88,6 +90,8 @@ class OverlayWindow(QWidget):
         sc = self.settings.overlay_scale
         bubble = QFrame()
         bubble.setObjectName("OverlayBubble")
+        bubble.setProperty("chat_alert", "false")
+        self.timer_bubbles.append(bubble)
         bubble.setFixedWidth(s(236, sc))
         layout = QVBoxLayout(bubble)
         layout.setContentsMargins(s(12, sc), s(11, sc), s(12, sc), s(12, sc))
@@ -244,6 +248,11 @@ class OverlayWindow(QWidget):
         frame.style().unpolish(frame)
         frame.style().polish(frame)
         frame.update()
+
+    def set_chat_alert(self, active: bool):
+        for bubble in self.timer_bubbles:
+            bubble.setProperty("chat_alert", "true" if active else "false")
+            bubble.style().unpolish(bubble); bubble.style().polish(bubble); bubble.update()
 
     def update_world(self, name: str, timer_text: str, status: str):
         if self.world_name_label is None or self.world_timer_label is None:

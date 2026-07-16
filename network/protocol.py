@@ -4,6 +4,7 @@ PROTOCOL_VERSION = 2
 TYPE_SPAWN = "spawn"
 TYPE_CHAT = "chat"
 TYPE_REACTION = "reaction"
+TYPE_CHAT_ALERT = "chat_alert"
 TYPE_ADMIN = "admin"
 TYPE_DIAGNOSTIC_PING = "diagnostic_ping"
 

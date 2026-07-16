@@ -1,3 +1,9 @@
 PySide6
 cryptography>=42.0
 PyInstaller>=6.21,<7
+paddleocr==3.7.0
+paddlepaddle==3.3.1
+paddlex[ocr-core]==3.7.2
+mss==10.2.0
+numpy==2.3.5
+rapidfuzz==3.14.5
