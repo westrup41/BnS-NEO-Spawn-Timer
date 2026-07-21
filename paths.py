@@ -7,8 +7,5 @@ APP_DIR = Path(os.getenv("LOCALAPPDATA")) / APP_NAME
 
 APP_DIR.mkdir(parents=True, exist_ok=True)
 
-LOGS_DIR = APP_DIR / "logs"
-LOGS_DIR.mkdir(exist_ok=True)
-
 USER_SOUNDS_DIR = APP_DIR / "user_sounds"
 USER_SOUNDS_DIR.mkdir(exist_ok=True)

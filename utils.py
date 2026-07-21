@@ -55,7 +55,7 @@ def upcoming_custom_events(schedule: dict, count: int = 5, now_local=None):
             target = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0) + timedelta(days=days)
             if target <= now_local:
                 target += timedelta(days=7)
-            targets.append({"name": str(row.get("name") or "No_Text"), "target": target})
+            targets.append({"name": str(row.get("name") or "Неизвестный босс"), "target": target})
     targets.sort(key=lambda item: item["target"])
     return targets[:max(1, int(count))]
 
@@ -75,18 +75,18 @@ def custom_event_state(schedule: dict, now_local=None, appearance_seconds: int =
                 continue
             base_days = weekday - now_local.weekday()
             base = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0) + timedelta(days=base_days)
-            name = str(row.get("name") or "No_Text")
+            name = str(row.get("name") or "Неизвестный босс")
             for week_shift in (-7, 0, 7):
                 targets.append((base + timedelta(days=week_shift), name))
     if not targets:
-        return {"name": "No_Text", "target": None, "seconds": None, "phase": "idle"}
+        return {"name": "Неизвестный босс", "target": None, "seconds": None, "phase": "idle"}
     recent = [item for item in targets if 0 <= (now_local - item[0]).total_seconds() < appearance_seconds]
     if recent:
         target, name = max(recent, key=lambda item: item[0])
         return {"name": name, "target": target, "seconds": None, "phase": "appearing"}
     future = [item for item in targets if item[0] > now_local]
     if not future:
-        return {"name": "No_Text", "target": None, "seconds": None, "phase": "idle"}
+        return {"name": "Неизвестный босс", "target": None, "seconds": None, "phase": "idle"}
     target, name = min(future, key=lambda item: item[0])
     return {
         "name": name,

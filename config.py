@@ -2,7 +2,7 @@ from datetime import timedelta, timezone
 from paths import APP_DIR
 from paths import APP_DIR, USER_SOUNDS_DIR
 
-APP_VERSION = "v4.2"
+APP_VERSION = "5.0"
 APP_NAME = "B&S NEO Spawn Timer"
 AUTHOR = "westrup"
 GITHUB_URL = "https://github.com/westrup41/BnS-NEO-Spawn-Timer"

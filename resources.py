@@ -6,6 +6,32 @@ from PySide6.QtCore import Qt, QRectF, QPointF
 from config import COLORS
 
 _ARROW_ASSETS = {}
+_UI_ICONS = {}
+
+
+def ui_icon(name: str) -> QIcon:
+    """Load a pre-rendered high-resolution interface icon."""
+    name = str(name).strip().lower()
+    tintable = {
+        "settings", "restart", "sound", "mute", "info", "chat",
+        "minimize", "scanner", "send_up", "emoji_face",
+    }
+    tint = COLORS["text_main"] if name in tintable else "original"
+    cache_key = (name, tint)
+    if cache_key not in _UI_ICONS:
+        path = resource_path(os.path.join("assets", "icons", f"{name}.png"))
+        if not os.path.exists(path):
+            _UI_ICONS[cache_key] = QIcon()
+        elif tint == "original":
+            _UI_ICONS[cache_key] = QIcon(path)
+        else:
+            pixmap = QPixmap(path)
+            painter = QPainter(pixmap)
+            painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+            painter.fillRect(pixmap.rect(), QColor(tint))
+            painter.end()
+            _UI_ICONS[cache_key] = QIcon(pixmap)
+    return _UI_ICONS[cache_key]
 
 def make_app_icon(size=64) -> QIcon:
     pix = QPixmap(size, size)
@@ -64,6 +90,19 @@ def make_info_icon(size=64) -> QIcon:
     painter.drawRoundedRect(QRectF(size * 0.44, size * 0.46, size * 0.12, size * 0.30), size * 0.05, size * 0.05)
     painter.end()
     return QIcon(pix)
+
+def make_sound_icon(muted=False, size=64) -> QIcon:
+    pix = QPixmap(size, size); pix.fill(Qt.transparent)
+    painter = QPainter(pix); painter.setRenderHint(QPainter.Antialiasing)
+    color = QColor(COLORS["text_main"]); pen = QPen(color, max(2, int(size * .09)), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    painter.setPen(pen); painter.setBrush(Qt.NoBrush)
+    painter.drawLine(QPointF(size * .55, size * .24), QPointF(size * .55, size * .66))
+    painter.drawLine(QPointF(size * .55, size * .24), QPointF(size * .78, size * .19))
+    painter.drawEllipse(QRectF(size * .30, size * .58, size * .28, size * .20))
+    if muted:
+        painter.setPen(QPen(QColor(COLORS["danger"]), max(3, int(size * .10)), Qt.SolidLine, Qt.RoundCap))
+        painter.drawLine(QPointF(size * .22, size * .22), QPointF(size * .80, size * .80))
+    painter.end(); return QIcon(pix)
 
 def make_github_icon(size=64) -> QIcon:
     pix = QPixmap(size, size)
