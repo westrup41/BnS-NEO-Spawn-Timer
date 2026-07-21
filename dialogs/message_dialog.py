@@ -23,6 +23,7 @@ class MessageDialog(QDialog):
         cancel_text: str | None = None,
         ok_first: bool = False,
         center_buttons: bool = False,
+        minimum_width: int | None = None,
     ):
         super().__init__(parent)
 
@@ -32,7 +33,7 @@ class MessageDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setModal(True)
         self.setStyleSheet(Style.main(scale))
-        self.setMinimumWidth(s(520, scale))
+        self.setMinimumWidth(s(minimum_width or 520, scale))
         self.adjustSize()
 
         self.result = False

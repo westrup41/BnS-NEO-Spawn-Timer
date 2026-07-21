@@ -1,159 +1,105 @@
 import json
-import hashlib
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from config import APP_VERSION, GITHUB_URL
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication, QProgressDialog
+from dialogs.message_dialog import MessageDialog
 
-LATEST_RELEASE_URL = (
-    GITHUB_URL.replace("https://github.com/", "https://api.github.com/repos/")
-    + "/releases/latest"
-)
+from config import APP_VERSION
+from paths import APP_DIR
 
 
-class UpdateManager:
+API_URL = "https://api.github.com/repos/westrup41/BnS-NEO-Spawn-Timer/releases/latest"
+EXE_ASSET = "BnS-NEO-Spawn-Timer.exe"
+AUTO_UPDATE_INTERVAL = timedelta(days=7)
 
-    def __init__(self, settings):
-        self.settings = settings
 
-    def should_check(self):
-        interval = self.settings.update_check_interval
+def version_tuple(value):
+    result = []
+    for part in str(value).lower().lstrip("v").split("."):
+        digits = ''.join(ch for ch in part if ch.isdigit())
+        result.append(int(digits or 0))
+    return tuple((result + [0, 0, 0])[:3])
 
-        if interval == "never":
-            return False
 
-        if not self.settings.last_update_check:
+class UpdateManager(QObject):
+    checked = Signal(object, bool)
+
+    def __init__(self, parent):
+        super().__init__(parent); self.parent_window = parent; self.checked.connect(self._checked)
+
+    def automatic_check_due(self, now=None):
+        now = now or datetime.now(timezone.utc)
+        try:
+            previous = datetime.fromisoformat(self.parent_window.settings.last_auto_update_check)
+            if previous.tzinfo is None:
+                previous = previous.replace(tzinfo=timezone.utc)
+            return now - previous >= AUTO_UPDATE_INTERVAL
+        except (TypeError, ValueError):
             return True
 
-        try:
-            last = datetime.fromisoformat(self.settings.last_update_check)
-        except Exception:
-            return True
-
-        now = datetime.now()
-
-        if interval == "week":
-            return now - last >= timedelta(days=7)
-
-        if interval == "month":
-            return now - last >= timedelta(days=30)
-
-        return False
-
-    def fetch_latest(self):
-        request = urllib.request.Request(
-            LATEST_RELEASE_URL,
-            headers={
-                "User-Agent": "BNS-NEO-Spawn-Timer"
-            }
-        )
-
-        with urllib.request.urlopen(request, timeout=10) as response:
-            data = json.loads(response.read().decode())
-
-        assets = data.get("assets") if isinstance(data.get("assets"), list) else []
-        exe = next((item for item in assets if str(item.get("name", "")).casefold() == "bns-neo-spawn-timer.exe"), {})
-        checksum = next((item for item in assets if str(item.get("name", "")).casefold() == "bns-neo-spawn-timer.exe.sha256"), {})
-        return {
-            "version": data.get("tag_name", ""),
-            "url": data.get("html_url", ""),
-            "body": data.get("body", ""),
-            "exe_url": exe.get("browser_download_url", ""),
-            "exe_name": exe.get("name", "BnS-NEO-Spawn-Timer.exe"),
-            "digest": str(exe.get("digest") or ""),
-            "sha256_url": checksum.get("browser_download_url", ""),
-        }
-
-    def versions_different(self, latest):
-        def normalize(version):
-            version = version.lower().strip()
-
-            if version.startswith("v"):
-                version = version[1:]
-
-            return tuple(int(part) for part in version.split("."))
-
-        try:
-            return normalize(latest) > normalize(APP_VERSION)
-        except Exception:
+    def check_automatic(self):
+        """Run at most once per seven days; manual checks remain unrestricted."""
+        now = datetime.now(timezone.utc)
+        if not self.automatic_check_due(now):
             return False
-        
-    def check(self, force=False):
-        return self.check_with_status(force=force).get("update")
+        self.parent_window.settings.last_auto_update_check = now.isoformat()
+        self.parent_window.settings.save()
+        self.check(silent=True)
+        return True
 
-    def check_with_status(self, force=False):
-        if not force and not self.should_check():
-            return {"status": "skipped", "update": None}
+    def check(self, silent=True):
+        def worker():
+            try:
+                request = urllib.request.Request(API_URL, headers={"User-Agent": "BnS-NEO-Spawn-Timer"})
+                with urllib.request.urlopen(request, timeout=15) as response: payload = json.load(response)
+                self.checked.emit(payload, silent)
+            except Exception: self.checked.emit(None, silent)
+        threading.Thread(target=worker, daemon=True).start()
 
+    def _checked(self, payload, silent):
+        if not payload:
+            if not silent: MessageDialog(self.parent_window, "Обновление", "Не удалось проверить обновления.").exec()
+            return
+        remote = str(payload.get("tag_name") or "")
+        if version_tuple(remote) <= version_tuple(APP_VERSION):
+            if not silent: MessageDialog(self.parent_window, "Обновление", "Установлена актуальная версия.").exec()
+            return
+        if not MessageDialog(self.parent_window, "Обновление", f"Установить версию {remote}?", ok_text="Установить", cancel_text="Отмена").exec_result(): return
+        assets = {str(item.get("name")): str(item.get("browser_download_url")) for item in payload.get("assets", [])}
+        url = assets.get(EXE_ASSET)
+        if not url: MessageDialog(self.parent_window, "Обновление", "Файл обновления не найден.").exec(); return
+        self.download(url)
+
+    def download(self, url):
+        if not getattr(sys, "frozen", False): return
+        progress = QProgressDialog("Загрузка обновления…", "Отмена", 0, 100, self.parent_window); progress.setMinimumDuration(0); progress.show()
+        destination = APP_DIR / "updates" / EXE_ASSET; destination.parent.mkdir(parents=True, exist_ok=True)
         try:
-            latest = self.fetch_latest()
-        except Exception as exc:
-            return {"status": "error", "update": None, "error": str(exc)}
+            request = urllib.request.Request(url, headers={"User-Agent": "BnS-NEO-Spawn-Timer"})
+            with urllib.request.urlopen(request, timeout=60) as response, open(destination, "wb") as output:
+                total = int(response.headers.get("Content-Length") or 0); loaded = 0
+                while True:
+                    if progress.wasCanceled(): return
+                    chunk = response.read(1024 * 1024)
+                    if not chunk: break
+                    output.write(chunk); loaded += len(chunk)
+                    if total: progress.setValue(int(loaded * 100 / total))
+                    QApplication.processEvents()
+            self.install(destination)
+        except Exception as exc: MessageDialog(self.parent_window, "Ошибка обновления", str(exc)).exec()
+        finally: progress.close()
 
-        if not latest:
-            return {"status": "error", "update": None}
-
-        self.settings.last_update_check = datetime.now().isoformat()
-        self.settings.save()
-
-        if not self.versions_different(latest["version"]):
-            return {"status": "current", "update": None, "latest": latest.get("version", "")}
-
-        return {"status": "update", "update": latest}
-
-    def download_verified(self, update: dict):
-        exe_url = str(update.get("exe_url") or "")
-        if not exe_url:
-            raise RuntimeError("В релизе нет exe-файла")
-        request = urllib.request.Request(exe_url, headers={"User-Agent": "BNS-NEO-Spawn-Timer"})
-        with urllib.request.urlopen(request, timeout=60) as response:
-            payload = response.read(300 * 1024 * 1024)
-        actual = hashlib.sha256(payload).hexdigest().lower()
-        expected = ""
-        digest = str(update.get("digest") or "")
-        if digest.lower().startswith("sha256:"):
-            expected = digest.split(":", 1)[1].strip().lower()
-        if not expected and update.get("sha256_url"):
-            checksum_request = urllib.request.Request(
-                update["sha256_url"], headers={"User-Agent": "BNS-NEO-Spawn-Timer"}
-            )
-            with urllib.request.urlopen(checksum_request, timeout=15) as response:
-                expected = response.read(4096).decode("ascii", "ignore").strip().split()[0].lower()
-        if len(expected) != 64 or actual != expected:
-            raise RuntimeError("SHA-256 новой версии не совпадает или отсутствует")
-        from paths import APP_DIR
-        update_dir = APP_DIR / "updates"
-        update_dir.mkdir(parents=True, exist_ok=True)
-        target_name = Path(str(update.get("exe_name") or "BnS-NEO-Spawn-Timer.exe")).name
-        if target_name.casefold() != "bns-neo-spawn-timer.exe":
-            raise RuntimeError("Неверное имя exe-файла обновления")
-        target = update_dir / target_name
-        target.write_bytes(payload)
-        return target
-
-    def install_and_restart(self, downloaded_path):
-        if not getattr(sys, "frozen", False):
-            raise RuntimeError("Автозамена доступна только в собранной версии")
-        current = os.path.abspath(sys.executable)
-        downloaded = os.path.abspath(str(downloaded_path))
-        script = os.path.join(tempfile.gettempdir(), "bns_neo_update.ps1")
-        escaped_current = current.replace("'", "''")
-        escaped_downloaded = downloaded.replace("'", "''")
-        body = (
-            f"$pidToWait={os.getpid()}\n"
-            "Wait-Process -Id $pidToWait -ErrorAction SilentlyContinue\n"
-            f"Copy-Item -LiteralPath '{escaped_downloaded}' -Destination '{escaped_current}' -Force\n"
-            f"Start-Process -FilePath '{escaped_current}'\n"
-            "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force\n"
-        )
-        with open(script, "w", encoding="utf-8-sig") as file:
-            file.write(body)
-        subprocess.Popen(
-            ["powershell.exe", "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", script],
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+    def install(self, source):
+        target = Path(sys.executable).resolve(); script = APP_DIR / "updates" / "install_update.ps1"
+        content = f"Start-Sleep -Milliseconds 1200\nCopy-Item -LiteralPath '{str(source).replace("'", "''")}' -Destination '{str(target).replace("'", "''")}' -Force\nStart-Process -FilePath '{str(target).replace("'", "''")}'\nRemove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force\n"
+        script.write_text(content, encoding="utf-8-sig")
+        subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", str(script)], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.parent_window.quit_app()

@@ -24,19 +24,20 @@ except Exception:
 
 from config import SUPPORTED_AUDIO_EXTENSIONS, USER_SOUNDS_DIR
 
-ALERT_WAV_PATH = os.path.join(tempfile.gettempdir(), "bs_neo_soft_chime_v3.wav")
+ALERT_WAV_PATH = os.path.join(tempfile.gettempdir(), "bs_neo_glass_chime_v4.wav")
 _MEDIA_PLAYERS = []
 
 def ensure_alert_wav() -> str:
     if os.path.exists(ALERT_WAV_PATH) and os.path.getsize(ALERT_WAV_PATH) > 1024:
         return ALERT_WAV_PATH
-    sample_rate = 44100
-    volume = 0.13
-    duration = 0.78
+    sample_rate = 48000
+    volume = 0.18
+    duration = 0.88
+    # A restrained two-note glass chime: lower and warmer than the old
+    # three-note system-like arpeggio, with a soft tail instead of a beep.
     notes = [
-        (0.00, 523.25, 0.42, 1.00),
-        (0.13, 659.25, 0.46, 0.82),
-        (0.27, 783.99, 0.50, 0.68),
+        (0.00, 392.00, 0.62, 0.92),
+        (0.17, 587.33, 0.66, 0.72),
     ]
     frames = []
     count = int(sample_rate * duration)
@@ -47,12 +48,14 @@ def ensure_alert_wav() -> str:
             local_t = t - start
             if local_t < 0 or local_t > length:
                 continue
-            attack = min(1.0, local_t / 0.018)
-            release = max(0.0, 1.0 - local_t / length)
-            envelope = attack * release * release * strength
-            tone = math.sin(2 * math.pi * frequency * local_t)
-            shimmer = 0.16 * math.sin(2 * math.pi * frequency * 2.01 * local_t)
-            sample += (tone + shimmer) * envelope
+            attack = min(1.0, local_t / 0.012)
+            release = math.exp(-4.4 * local_t / length)
+            tail = max(0.0, 1.0 - local_t / length)
+            envelope = attack * release * tail * strength
+            phase = 2 * math.pi * frequency * local_t
+            body = math.sin(phase)
+            glass = 0.22 * math.sin(phase * 2.003) + 0.06 * math.sin(phase * 3.01)
+            sample += (body + glass) * envelope
         sample *= volume
         frames.append(struct.pack("<h", max(-32767, min(32767, int(sample * 32767)))))
     with wave.open(ALERT_WAV_PATH, "wb") as wav:

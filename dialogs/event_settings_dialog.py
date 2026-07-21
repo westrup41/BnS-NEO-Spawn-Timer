@@ -1,10 +1,9 @@
-from datetime import datetime
 import json
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QFileDialog, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QComboBox, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from dialogs.message_dialog import MessageDialog
@@ -12,349 +11,140 @@ from styles import Style
 from utils import s
 
 
-DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+DAYS = ("Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье")
+ROWS_PER_DAY = 10
 
 
 class EventSettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.app = parent
-        self.settings = parent.settings
-        self.rows = {day: [] for day in range(7)}
-        self.day_layouts = {}
-        self.drag_pos = None
+        self.app = parent; self.settings = parent.settings; self.drag_pos = None; self.editors = []
+        sc = self.settings.app_scale
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setModal(True)
-        self.setStyleSheet(Style.main(self.settings.app_scale))
-        self.setFixedSize(s(720, self.settings.app_scale), s(780, self.settings.app_scale))
+        self.setModal(True); self.setStyleSheet(Style.main(sc))
+        screen = self.screen().availableGeometry()
+        self.resize(min(screen.width() - 56, s(1180, sc)), min(screen.height() - 56, s(680, sc)))
         self.build()
 
     def build(self):
         sc = self.settings.app_scale
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        shell = QFrame()
-        shell.setObjectName("Shell")
-        root.addWidget(shell)
-        main = QVBoxLayout(shell)
-        main.setContentsMargins(s(20, sc), s(16, sc), s(20, sc), s(18, sc))
-        main.setSpacing(s(10, sc))
+        root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0)
+        shell = QFrame(); shell.setObjectName("Shell"); root.addWidget(shell)
+        main = QVBoxLayout(shell); main.setContentsMargins(s(18, sc), s(14, sc), s(18, sc), s(16, sc)); main.setSpacing(s(10, sc))
+        top = QFrame(); top.setObjectName("TopBar"); top_row = QHBoxLayout(top); top_row.setContentsMargins(0, 0, 0, 0)
+        title = QLabel("Расписание Event"); title.setObjectName("DialogTitle")
+        close = QPushButton("×"); close.setObjectName("Close"); close.setFixedSize(s(34, sc), s(32, sc)); close.clicked.connect(self.reject)
+        top_row.addWidget(title); top_row.addStretch(1); top_row.addWidget(close); main.addWidget(top)
+        top.mousePressEvent = self.mousePressEvent; top.mouseMoveEvent = self.mouseMoveEvent; top.mouseReleaseEvent = self.mouseReleaseEvent
 
-        top_frame = QFrame()
-        top = QHBoxLayout(top_frame)
-        top.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("Настройки Event")
-        title.setObjectName("SectionTitle")
-        close = QPushButton("×")
-        close.setObjectName("Close")
-        close.setFixedSize(s(34, sc), s(32, sc))
-        close.clicked.connect(self.reject)
-        top.addWidget(title)
-        top.addStretch(1)
-        top.addWidget(close)
-        main.addWidget(top_frame)
-        top_frame.mousePressEvent = self.mousePressEvent
-        top_frame.mouseMoveEvent = self.mouseMoveEvent
-        top_frame.mouseReleaseEvent = self.mouseReleaseEvent
-        title.mousePressEvent = self.mousePressEvent
-        title.mouseMoveEvent = self.mouseMoveEvent
-        title.mouseReleaseEvent = self.mouseReleaseEvent
+        tools = QHBoxLayout(); tools.setSpacing(s(8, sc))
+        tools.addWidget(QLabel("Имя для всех"))
+        self.global_name = QLineEdit("Неизвестный босс"); self.global_name.setMaxLength(30); self.global_name.setFixedWidth(s(210, sc)); tools.addWidget(self.global_name)
+        fill = QPushButton("Заполнить имена"); fill.setObjectName("Ghost"); fill.clicked.connect(self.apply_name_to_all); tools.addWidget(fill)
+        tools.addSpacing(s(18, sc)); tools.addWidget(QLabel("Время появления"))
+        self.appearance = QComboBox()
+        for minutes in range(1, 60): self.appearance.addItem(f"{minutes} мин.", minutes)
+        self.appearance.setCurrentIndex(max(0, min(58, int(self.settings.event_appearance_minutes) - 1)))
+        self.appearance.setFixedWidth(s(110, sc)); tools.addWidget(self.appearance)
+        tools.addStretch(1); main.addLayout(tools)
 
-        global_row = QHBoxLayout()
-        global_label = QLabel("Имя босса")
-        global_label.setObjectName("FormLabel")
-        self.global_name = QLineEdit("No_Text")
-        self.global_name.setMaxLength(30)
-        self.global_name.setFixedWidth(s(300, sc))
-        apply_all_btn = QPushButton("Применить ко всем")
-        apply_all_btn.setObjectName("Primary")
-        apply_all_btn.clicked.connect(self.apply_name_to_all)
-        global_row.addWidget(global_label)
-        global_row.addWidget(self.global_name)
-        global_row.addWidget(apply_all_btn)
-        global_row.addStretch(1)
-        main.addLayout(global_row)
+        scroll = QScrollArea(); scroll.setObjectName("SettingsScroll"); scroll.setWidgetResizable(True); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        calendar = QWidget(); grid = QGridLayout(calendar); grid.setContentsMargins(0, 0, 0, 0); grid.setHorizontalSpacing(s(6, sc)); grid.setVerticalSpacing(s(5, sc))
+        for day, name in enumerate(DAYS):
+            label = QLabel(name); label.setObjectName("CalendarDay"); label.setAlignment(Qt.AlignCenter); grid.addWidget(label, 0, day)
+        schedule = self.settings.event_schedule if isinstance(self.settings.event_schedule, dict) else {}
+        for row_index in range(ROWS_PER_DAY):
+            row_editors = []
+            for day in range(7):
+                values = schedule.get(str(day), []); value = values[row_index] if row_index < len(values) and isinstance(values[row_index], dict) else {}
+                cell = QFrame(); cell.setObjectName("ScheduleCell"); cell_box = QVBoxLayout(cell); cell_box.setContentsMargins(s(5, sc), s(4, sc), s(5, sc), s(4, sc)); cell_box.setSpacing(s(3, sc))
+                cell.setFixedWidth(s(152, sc))
+                boss = QLineEdit(str(value.get("name") or "")); boss.setPlaceholderText(""); boss.setMaxLength(30)
+                time_edit = QLineEdit(str(value.get("time") or "")); time_edit.setPlaceholderText("00:00"); time_edit.setMaxLength(5); time_edit.setAlignment(Qt.AlignCenter); time_edit.setMinimumWidth(s(72, sc))
+                time_edit.textEdited.connect(lambda text, edit=time_edit: self.normalize_time(edit, text))
+                cell_box.addWidget(boss); cell_box.addWidget(time_edit); grid.addWidget(cell, row_index + 1, day); row_editors.append((boss, time_edit))
+            self.editors.append(row_editors)
+        scroll.setWidget(calendar); main.addWidget(scroll, 1)
 
-        appearance_row = QHBoxLayout()
-        appearance_label = QLabel("Время появления")
-        appearance_label.setObjectName("FormLabel")
-        self.appearance_minutes = QSpinBox()
-        self.appearance_minutes.setButtonSymbols(QSpinBox.NoButtons)
-        self.appearance_minutes.setRange(1, 59)
-        self.appearance_minutes.setSuffix(" мин.")
-        self.appearance_minutes.setValue(self.settings.event_appearance_minutes)
-        self.appearance_minutes.setFixedWidth(s(110, sc))
-        apply_appearance = QPushButton("Применить")
-        apply_appearance.setObjectName("Primary")
-        apply_appearance.clicked.connect(self.apply_appearance_time)
-        reset_appearance = QPushButton("Сбросить")
-        reset_appearance.setObjectName("Ghost")
-        reset_appearance.clicked.connect(lambda: self.appearance_minutes.setValue(5))
-        appearance_row.addWidget(appearance_label)
-        appearance_row.addWidget(self.appearance_minutes)
-        appearance_row.addWidget(apply_appearance)
-        appearance_row.addWidget(reset_appearance)
-        appearance_row.addStretch(1)
-        main.addLayout(appearance_row)
-
-        scroll = QScrollArea()
-        scroll.setObjectName("SettingsScroll")
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        host = QWidget()
-        host.setObjectName("SettingsScrollContent")
-        days_layout = QVBoxLayout(host)
-        days_layout.setContentsMargins(0, 0, s(8, sc), 0)
-        days_layout.setSpacing(s(10, sc))
-
-        schedule = self.settings.event_schedule
-        for day, day_name in enumerate(DAYS):
-            group = QFrame()
-            group.setObjectName("SettingsGroup")
-            box = QVBoxLayout(group)
-            box.setContentsMargins(s(12, sc), s(10, sc), s(12, sc), s(10, sc))
-            box.setSpacing(s(6, sc))
-            header = QHBoxLayout()
-            label_text = f"{day_name} (сегодня)" if day == datetime.now().weekday() else day_name
-            label = QLabel(label_text)
-            label.setObjectName("GroupTitle")
-            add = QPushButton("+")
-            add.setObjectName("Ghost")
-            add.setFixedSize(s(34, sc), s(30, sc))
-            add.setToolTip("Добавить событие")
-            add.clicked.connect(lambda checked=False, target_day=day: self.add_row(target_day))
-            header.addWidget(label)
-            header.addStretch(1)
-            header.addWidget(add)
-            box.addLayout(header)
-            self.day_layouts[day] = box
-            day_rows = schedule.get(str(day), [])
-            for row in day_rows[:10]:
-                self.add_row(day, row.get("name", "No_Text"), row.get("time", ""))
-            while len(self.rows[day]) < 3:
-                self.add_row(day)
-            days_layout.addWidget(group)
-
-        days_layout.addStretch(1)
-        scroll.setWidget(host)
-        main.addWidget(scroll, 1)
-
-        buttons = QHBoxLayout()
-        clear = QPushButton("Очистить")
-        clear.setObjectName("Danger")
-        clear.clicked.connect(self.clear_schedule)
-        export_btn = QPushButton("Экспорт")
-        export_btn.setObjectName("Ghost")
-        export_btn.clicked.connect(self.export_schedule)
-        import_btn = QPushButton("Импорт")
-        import_btn.setObjectName("Ghost")
-        import_btn.clicked.connect(self.import_schedule)
-        cancel = QPushButton("Отмена")
-        cancel.setObjectName("Ghost")
-        cancel.clicked.connect(self.reject)
-        save = QPushButton("Сохранить")
-        save.setObjectName("Success")
-        save.clicked.connect(self.save_schedule)
-        apply_btn = QPushButton("Применить")
-        apply_btn.setObjectName("Primary")
-        apply_btn.clicked.connect(self.apply_schedule)
-        buttons.addWidget(clear)
-        buttons.addWidget(export_btn)
-        buttons.addWidget(import_btn)
+        buttons = QHBoxLayout(); clear = QPushButton("Очистить"); clear.setObjectName("Danger"); clear.clicked.connect(self.clear)
+        reset = QPushButton("Сбросить"); reset.setObjectName("Ghost"); reset.clicked.connect(self.reset_defaults)
+        export_btn = QPushButton("Экспорт"); export_btn.setObjectName("Ghost"); export_btn.clicked.connect(self.export_schedule)
+        import_btn = QPushButton("Импорт"); import_btn.setObjectName("Ghost"); import_btn.clicked.connect(self.import_schedule)
+        cancel = QPushButton("Отмена"); cancel.setObjectName("Ghost"); cancel.clicked.connect(self.reject)
+        apply_btn = QPushButton("Применить"); apply_btn.setObjectName("Primary"); apply_btn.clicked.connect(self.apply)
+        save = QPushButton("Сохранить"); save.setObjectName("Success"); save.clicked.connect(self.save_and_close)
+        for button in (clear, reset, import_btn, export_btn): buttons.addWidget(button)
         buttons.addStretch(1)
-        buttons.addWidget(save)
-        buttons.addWidget(apply_btn)
-        buttons.addWidget(cancel)
+        for button in (save, apply_btn, cancel): buttons.addWidget(button)
         main.addLayout(buttons)
 
-    def add_row(self, day: int, name: str = "No_Text", time: str = ""):
-        if len(self.rows[day]) >= 10:
-            return
-        sc = self.settings.app_scale
-        line = QFrame()
-        row_layout = QHBoxLayout(line)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(s(8, sc))
-        number = QLabel(str(len(self.rows[day]) + 1))
-        number.setObjectName("FormLabel")
-        number.setFixedWidth(s(20, sc))
-        name_input = QLineEdit(name or "No_Text")
-        name_input.setMaxLength(30)
-        name_input.setPlaceholderText("No_Text")
-        time_input = QLineEdit(time)
-        time_input.setMaxLength(5)
-        time_input.setPlaceholderText("23:59")
-        time_input.setFixedWidth(s(90, sc))
-        time_input.textEdited.connect(lambda value, edit=time_input: self.normalize_time(edit, value))
-        row_layout.addWidget(number)
-        row_layout.addWidget(name_input, 1)
-        row_layout.addWidget(time_input)
-        remove_btn = None
-        if len(self.rows[day]) >= 3:
-            remove_btn = QPushButton("×")
-            remove_btn.setObjectName("Close")
-            remove_btn.setFixedSize(s(34, sc), s(34, sc))
-            remove_btn.setToolTip("Удалить строку")
-            remove_btn.clicked.connect(lambda checked=False, target_day=day, target_line=line: self.remove_row(target_day, target_line))
-            row_layout.addWidget(remove_btn)
-        self.rows[day].append((line, number, name_input, time_input))
-        self.day_layouts[day].addWidget(line)
-
-    def remove_row(self, day: int, line):
-        if len(self.rows[day]) <= 3:
-            return
-        for index, row in enumerate(self.rows[day]):
-            if row[0] is line and index >= 3:
-                self.rows[day].pop(index)
-                self.day_layouts[day].removeWidget(line)
-                line.deleteLater()
-                break
-        for index, (_, number, _, _) in enumerate(self.rows[day], start=1):
-            number.setText(str(index))
-
-    def normalize_time(self, edit, text):
-        digits = "".join(char for char in text if char.isdigit())[:4]
-        value = digits[:2] + ":" + digits[2:] if len(digits) >= 3 else digits
-        if value != text:
-            edit.blockSignals(True)
-            edit.setText(value)
-            edit.blockSignals(False)
+    @staticmethod
+    def normalize_time(edit, text):
+        digits = "".join(ch for ch in text if ch.isdigit())[:4]
+        value = digits if len(digits) <= 2 else f"{digits[:2]}:{digits[2:]}"
+        if value != text: edit.blockSignals(True); edit.setText(value); edit.blockSignals(False)
 
     def apply_name_to_all(self):
-        name = self.global_name.text().strip() or "No_Text"
-        for day_rows in self.rows.values():
-            for _, _, name_input, _ in day_rows:
-                name_input.setText(name)
+        name = self.global_name.text().strip() or "Неизвестный босс"
+        for row in self.editors:
+            for boss, _ in row: boss.setText(name)
 
-    def apply_appearance_time(self):
-        self.settings.event_appearance_minutes = self.appearance_minutes.value()
-        self.settings.save()
-        self.app.tick()
+    def clear(self):
+        for row in self.editors:
+            for boss, time_edit in row: boss.clear(); time_edit.clear()
 
-    def clear_schedule(self):
-        if not MessageDialog(
-            self,
-            "Хотите очистить расписание?",
-            "Будут удалены все данные событий.",
-            ok_text="Очистить",
-            cancel_text="Отмена",
-            ok_first=True,
-            center_buttons=True,
-        ).exec_result():
-            return
-        self.global_name.setText("No_Text")
-        for day in range(7):
-            for line, _, _, _ in self.rows[day][3:]:
-                self.day_layouts[day].removeWidget(line)
-                line.deleteLater()
-            self.rows[day] = self.rows[day][:3]
-            for _, _, name_input, time_input in self.rows[day]:
-                name_input.setText("No_Text")
-                time_input.clear()
+    def reset_defaults(self):
+        if not MessageDialog(self, "Сброс расписания", "Вернуть расписание Event к пустому значению?", ok_text="Сбросить", cancel_text="Отмена").exec_result(): return
+        self.clear(); self.global_name.setText("Неизвестный босс"); self.appearance.setCurrentIndex(4)
 
-    def save_schedule(self):
-        if self._store_schedule():
-            self.accept()
+    def values(self):
+        schedule = {str(day): [] for day in range(7)}
+        for row in self.editors:
+            for day, (boss, time_edit) in enumerate(row):
+                name, value = boss.text().strip(), time_edit.text().strip()
+                if not value: continue
+                try:
+                    hour, minute = map(int, value.split(":"))
+                    if not (0 <= hour <= 23 and 0 <= minute <= 59): raise ValueError
+                except Exception: raise ValueError(f"{DAYS[day]}: неверное время «{value}»")
+                schedule[str(day)].append({"name": (name or "Неизвестный босс")[:30], "time": f"{hour:02d}:{minute:02d}"})
+        return schedule
 
-    def apply_schedule(self):
-        self._store_schedule()
-
-    def _store_schedule(self):
-        schedule = {}
-        for day in range(7):
-            day_rows = []
-            for _, _, name_input, time_input in self.rows[day]:
-                time = time_input.text().strip()
-                if time:
-                    try:
-                        hour, minute = map(int, time.split(":"))
-                        if not (0 <= hour <= 23 and 0 <= minute <= 59):
-                            raise ValueError
-                    except Exception:
-                        MessageDialog(self, "Неверное время", f"{DAYS[day]}: укажите время от 00:00 до 23:59.").exec()
-                        time_input.setFocus()
-                        return False
-                day_rows.append({
-                    "name": (name_input.text().strip() or "No_Text")[:30],
-                    "time": time,
-                })
-            schedule[str(day)] = day_rows
-        self.settings.event_schedule = schedule
-        self.settings.event_appearance_minutes = self.appearance_minutes.value()
-        self.settings.save()
-        self.app.tick()
-        if self.app.overlay_window is not None:
-            self.app.overlay_window.apply_settings()
+    def apply(self):
+        try: schedule = self.values()
+        except ValueError as exc: MessageDialog(self, "Расписание Event", str(exc)).exec(); return False
+        self.settings.event_schedule = schedule; self.settings.event_appearance_minutes = int(self.appearance.currentData()); self.settings.save(); self.app.tick()
+        if self.app.overlay_window is not None: self.app.overlay_window.apply_settings()
         return True
 
+    def save_and_close(self):
+        if self.apply(): self.accept()
+
     def export_schedule(self):
-        if not self._store_schedule():
-            return
+        try: schedule = self.values()
+        except ValueError as exc: MessageDialog(self, "Расписание Event", str(exc)).exec(); return
         path, _ = QFileDialog.getSaveFileName(self, "Экспорт Event", "bns-neo-event.json", "JSON (*.json)")
-        if not path:
-            return
-        try:
-            with open(path, "w", encoding="utf-8") as file:
-                json.dump({"format": "bns-neo-event", "version": 1,
-                           "appearance_minutes": self.settings.event_appearance_minutes,
-                           "schedule": self.settings.event_schedule}, file, ensure_ascii=False, indent=2)
-        except Exception as exc:
-            MessageDialog(self, "Ошибка экспорта", str(exc)).exec()
+        if path:
+            with open(path, "w", encoding="utf-8") as file: json.dump({"format":"bns-neo-event","version":2,"appearance_minutes":int(self.appearance.currentData()),"schedule":schedule}, file, ensure_ascii=False, indent=2)
 
     def import_schedule(self):
         path, _ = QFileDialog.getOpenFileName(self, "Импорт Event", "", "JSON (*.json)")
-        if not path:
-            return
+        if not path: return
         try:
-            with open(path, "r", encoding="utf-8") as file:
-                payload = json.load(file)
-            if payload.get("format") != "bns-neo-event" or not isinstance(payload.get("schedule"), dict):
-                raise ValueError("Это не файл расписания Event")
-            imported_schedule = payload["schedule"]
-            normalized_schedule = {}
-            for day in range(7):
-                source_rows = imported_schedule.get(str(day), imported_schedule.get(day, []))
-                if not isinstance(source_rows, list):
-                    raise ValueError(f"{DAYS[day]}: неверный список событий")
-                rows = []
-                for row in source_rows[:10]:
-                    if not isinstance(row, dict):
-                        raise ValueError(f"{DAYS[day]}: повреждённая строка события")
-                    time_text = str(row.get("time") or "").strip()
-                    if time_text:
-                        try:
-                            hour, minute = map(int, time_text.split(":"))
-                            if not (0 <= hour <= 23 and 0 <= minute <= 59):
-                                raise ValueError
-                        except Exception:
-                            raise ValueError(f"{DAYS[day]}: неверное время {time_text}")
-                        time_text = f"{hour:02d}:{minute:02d}"
-                    rows.append({
-                        "name": str(row.get("name") or "No_Text")[:30],
-                        "time": time_text,
-                    })
-                while len(rows) < 3:
-                    rows.append({"name": "No_Text", "time": ""})
-                normalized_schedule[str(day)] = rows
-            self.settings.event_schedule = normalized_schedule
-            self.settings.event_appearance_minutes = max(1, min(59, int(payload.get("appearance_minutes", 5))))
-            self.settings.save()
-            MessageDialog(self, "Импорт завершён", "Расписание загружено. Откройте окно Event заново для проверки.").exec()
-            self.accept()
-        except Exception as exc:
-            MessageDialog(self, "Ошибка импорта", str(exc)).exec()
+            with open(path, "r", encoding="utf-8") as file: payload = json.load(file)
+            schedule = payload.get("schedule") if isinstance(payload, dict) else None
+            if not isinstance(schedule, dict): raise ValueError("Неверный формат файла")
+            for row_index, row in enumerate(self.editors):
+                for day, (boss, time_edit) in enumerate(row):
+                    rows = schedule.get(str(day), []); value = rows[row_index] if row_index < len(rows) and isinstance(rows[row_index], dict) else {}
+                    boss.setText(str(value.get("name") or "")); time_edit.setText(str(value.get("time") or ""))
+            minutes = max(1, min(59, int(payload.get("appearance_minutes", 5))))
+            self.appearance.setCurrentIndex(minutes - 1)
+        except Exception as exc: MessageDialog(self, "Импорт Event", str(exc)).exec()
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
-
+        if event.button() == Qt.LeftButton: self.drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft(); event.accept()
     def mouseMoveEvent(self, event):
-        if self.drag_pos is not None:
-            self.move(event.globalPosition().toPoint() - self.drag_pos)
-            event.accept()
-
-    def mouseReleaseEvent(self, event):
-        self.drag_pos = None
-        event.accept()
+        if self.drag_pos is not None: self.move(event.globalPosition().toPoint() - self.drag_pos); event.accept()
+    def mouseReleaseEvent(self, event): self.drag_pos = None; event.accept()

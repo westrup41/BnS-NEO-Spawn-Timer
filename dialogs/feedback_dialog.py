@@ -6,7 +6,6 @@ from config import APP_VERSION, FEEDBACK_WEBHOOK_URL
 from utils import s
 from styles import Style
 from services.discord import post_discord_webhook
-from services.logger import log
 
 class FeedbackDialog(QDialog):
     feedback_result = Signal(bool, str)
@@ -95,13 +94,11 @@ class FeedbackDialog(QDialog):
 
     def on_feedback_result(self, ok: bool, error: str):
         if ok:
-            log("Отзыв отправлен")
             MessageDialog(self, "Отзыв", "Отзыв отправлен успешно.").exec()
             self.close()
             return
         self.send_btn.setEnabled(True)
         self.send_btn.setText("Отправить")
-        log(f"Ошибка отправки отзыва: {error}")
         MessageDialog(self, "Отзыв", "Не удалось отправить отзыв.").exec()
 
     def mousePressEvent(self, event):

@@ -12,15 +12,22 @@ class NetworkDiagnosticsDialog(QDialog):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.setObjectName("StandaloneDialog")
         self.app = parent.app if hasattr(parent, "app") else parent
         self.setWindowTitle("Диагностика сети")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setModal(False)
         self.setStyleSheet(Style.main(self.app.settings.app_scale))
-        self.resize(s(620, self.app.settings.app_scale), s(590, self.app.settings.app_scale))
-        root = QVBoxLayout(self)
+        self.resize(s(620, self.app.settings.app_scale), s(520, self.app.settings.app_scale))
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        shell = QFrame(); shell.setObjectName("Shell"); outer.addWidget(shell)
+        root = QVBoxLayout(shell); root.setContentsMargins(s(18, self.app.settings.app_scale), s(14, self.app.settings.app_scale), s(18, self.app.settings.app_scale), s(16, self.app.settings.app_scale))
+        header = QHBoxLayout()
+        title = QLabel("Диагностика сети"); title.setObjectName("DialogTitle")
+        close = QPushButton("×"); close.setObjectName("Close"); close.setFixedSize(s(34, self.app.settings.app_scale), s(32, self.app.settings.app_scale)); close.clicked.connect(self.close)
+        header.addWidget(title); header.addStretch(1); header.addWidget(close); root.addLayout(header)
         self.summary = QLabel()
-        self.summary.setObjectName("SectionTitle")
+        self.summary.setObjectName("SettingsSectionTitle")
         root.addWidget(self.summary)
         self.rows = QVBoxLayout()
         root.addLayout(self.rows)
@@ -74,5 +81,5 @@ class NetworkDiagnosticsDialog(QDialog):
             status = "● онлайн" if item["connected"] else "● офлайн"
             latency = f"{item['latency_ms']} мс" if item["latency_ms"] is not None else "—"
             box.addWidget(QLabel(f"{item['host']}:{item['port']}   {status}"))
-            box.addWidget(QLabel(f"Время подключения: {latency}   Ошибка: {item['last_error'] or '—'}"))
+            box.addWidget(QLabel(f"Пинг подключения: {latency}   Ошибка: {item['last_error'] or '—'}"))
             self.rows.addWidget(card)

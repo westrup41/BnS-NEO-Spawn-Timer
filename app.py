@@ -265,10 +265,10 @@ class MainWindow(QMainWindow):
         sidebar_layout.addStretch(1)
 
         self.tracker_btn = TrackerButton(self, sidebar)
-        self.tracker_btn.setText("Трекер чата")
+        self.tracker_btn.setText("Сканер чата")
         self.tracker_btn.setIconSize(QSize(s(20, sc), s(20, sc)))
         self.tracker_btn.setFixedHeight(s(40, sc))
-        self.tracker_btn.setToolTip("Трекер игрового чата")
+        self.tracker_btn.setToolTip("Сканер игрового чата")
         self.tracker_btn.clicked.connect(self.open_chat_tracker)
         self.tracker_btn.setVisible(True)
         self.tracker_btn.setEnabled(self.settings.chat_tracker_enabled)

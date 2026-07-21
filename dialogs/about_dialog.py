@@ -3,7 +3,7 @@ import webbrowser
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton
 from PySide6.QtCore import Qt, QTimer, QPoint, QSize
 
-from config import APP_NAME, APP_VERSION, AUTHOR, GITHUB_URL, TELEGRAM_URL, DISCORD_NAME
+from config import APP_NAME, APP_VERSION, GITHUB_URL, TELEGRAM_URL, DISCORD_NAME
 from resources import make_github_icon, make_telegram_icon, make_discord_icon
 from utils import s
 from styles import Style
@@ -18,7 +18,7 @@ class AboutDialog(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setModal(False)
         self.setStyleSheet(Style.main(parent.settings.app_scale))
-        self.setFixedSize(s(450, parent.settings.app_scale), s(390, parent.settings.app_scale))
+        self.setFixedSize(s(450, parent.settings.app_scale), s(245, parent.settings.app_scale))
         self.build()
 
     def build(self):
@@ -52,11 +52,6 @@ class AboutDialog(QDialog):
         version.setAlignment(Qt.AlignCenter)
         layout.addWidget(version)
 
-        developer = QLabel(f"Разработчик: {AUTHOR}")
-        developer.setObjectName("FormLabel")
-        developer.setAlignment(Qt.AlignCenter)
-        layout.addWidget(developer)
-
         contacts = QHBoxLayout()
         contacts.addStretch(1)
         github = self.contact_button("GitHub", make_github_icon(s(72, sc)), lambda: webbrowser.open(GITHUB_URL))
@@ -67,23 +62,12 @@ class AboutDialog(QDialog):
         contacts.addWidget(self.discord_btn)
         contacts.addStretch(1)
         layout.addLayout(contacts)
+        layout.addSpacing(s(2, sc))
 
-        self.update_status = QLabel("")
-        self.update_status.setObjectName("FormLabel")
-        self.update_status.setAlignment(Qt.AlignCenter)
-        self.update_status.setWordWrap(True)
-        self.update_status.setMinimumHeight(s(38, sc))
-        layout.addWidget(self.update_status)
-        layout.addStretch(1)
-
-        buttons = QHBoxLayout()
-        self.check_btn = QPushButton("Проверить обновления")
-        self.check_btn.setObjectName("Primary")
-        self.check_btn.clicked.connect(self.check_updates)
-        buttons.addStretch(1)
-        buttons.addWidget(self.check_btn)
-        buttons.addStretch(1)
-        layout.addLayout(buttons)
+        update_btn = QPushButton("Проверить обновления")
+        update_btn.setObjectName("Ghost")
+        update_btn.clicked.connect(lambda: self.parent_window.updater.check(silent=False))
+        layout.addWidget(update_btn, 0, Qt.AlignCenter)
 
         self.discord_popover = QFrame(self)
         self.discord_popover.setObjectName("ContactPopover")
@@ -115,20 +99,6 @@ class AboutDialog(QDialog):
         self.discord_popover.show()
         self.discord_popover.raise_()
         QTimer.singleShot(5000, self.discord_popover.hide)
-
-    def check_updates(self):
-        self.check_btn.setEnabled(False)
-        self.update_status.setStyleSheet("")
-        self.update_status.setText("Проверяю обновления…")
-        self.parent_window.check_updates_now()
-
-    def set_update_status(self, text: str, is_error: bool = False):
-        self.check_btn.setEnabled(True)
-        self.update_status.setText(text)
-        if is_error:
-            self.update_status.setStyleSheet("color: #DA373C;")
-        else:
-            self.update_status.setStyleSheet("")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
